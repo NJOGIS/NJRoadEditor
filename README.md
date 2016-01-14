@@ -50,3 +50,4 @@ Please submit issues and/or bugs through the issues page at https://github.com/N
 ##Credits
 
 - NJ Office of GIS
+- Code Contributors: Ed Farrell @EdFarrell
