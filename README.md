@@ -35,7 +35,7 @@ The main branch of this repository is used for development. You are free to use 
 
 ##Installation
 
-Please see [ESRI's ArcMap help page](http://desktop.arcgis.com/en/desktop/latest/guide-books/python-addins/sharing-and-installing-add-ins.htm) for instructions.
+Please see [ESRI's ArcMap help page](http://desktop.arcgis.com/en/desktop/latest/guide-books/python-addins/sharing-and-installing-add-ins.htm) for instructions. For the latest stable release, please download from the official release page @ https://github.com/NJOGIS/NJRoadEditor/releases.
 
 ##Known Issues/Bugs
 
