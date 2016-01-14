@@ -21,6 +21,10 @@ Contributors should fork this repo and submit pull requests regularly for code i
 
 ##Current Version: 3.1.0
 
+The latest stable version is NJRoadEditor_3.1.0. If you would like to download the `.esriaddin` file for quick installation (or full source code), Please go to the release page @ https://github.com/NJOGIS/NJRoadEditor/releases.
+
+The main branch of this repository is used for development. You are free to use the development version of the Add-In, but we make no guarantee that it will function properly, so use at your own risk.
+
 ### Release Notes
 
 - This release is not digitally signed. Digital signature will be updated soon.
