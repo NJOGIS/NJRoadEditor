@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>	
+	<title>NJRE Split</title>
+	<link rel="gisicon" href="gis_logo_stack.ico">
+</head>
+
+<body>
+	<img src="gis_logo_1in.jpg" >
+	<h1>NJRE Split Tool</h1>
+		<h2>Description</h2> 	
+			<p>The ESRI Editor split tool and the NJRE Split tool are two separate tools that are used by the Add-In to properly handle changes to the database feature classes and tables. Splitting a segment should be performed using the ESRI Editor split tool. After the segment is split (in the SEGMENT feature class), the NJRE Add-In Split tool will launch as a series of dialog boxes that will allow fields to be populated for each of the two newly split segments. By default, all of the field values in the original segment are inherited by the two newly split segments, but new SEG_GUID values are created for each new segment. The user will also have to provide ELEV_TYPE values for one end of each segment (since elevation is unknown where the split took place). If the original segment had linear referencing the MILEPOST values are automatically interpolated (for each new segment) in the LINEAR_REF table. For each new segment the address ranges are interpolated using the NJ OGIS Roads Geocoder  <a href="http://geodata.state.nj.us/arcgis/rest/services/Tasks/Addr_NJ_road/GeocodeServer" target="_blank">"http://geodata.state.nj.us/arcgis/rest/services/Tasks/Addr_NJ_road/GeocodeServer"</a>. If the geocoder fails to interpolate, the field values will be inherited from the original segment. Once the field values are updated using the dialog boxes, all remnants of the original segment are deleted from the database and the field values for the two new segments are updated.</p> 
+			<p>The general process shown in Figure 8 shows the split process, where the original segment (SEG_GUID 0) gets deleted along with any associated SEGMENT_COMMENTS records. Also, the original segment is added to the SEG_CHANGE feature class, and 2 new records are inserted into the SEGMENT_TRANS table with SEG_GUID_NEW values that match SEG_GUID 1 and SEG_GUID 2. The field values from SEG_GUID 0 are inherited to SEG_GUID 1 and SEG_GUID 2, and any changes that were made using the tool dialog boxes are applied for each of the segments. Milepost values are updated based on the new M-values for each of the newly split segments (this is only for LRS_TYPE 1, 2, and 3). If the user is on the OIT domain, OIT__REV_TYPE will default to "Final" and DOT_REV_TYPE will default to "Draft". Conversely, if the user is DOT, then OIT__REV_TYPE will default to "Draft" and DOT_REV_TYPE will default to "Final".</p> 
+		<h2>Split Tool Processes Workflow Model (see manual for further details)</h2>	
+			<hr>
+			<img src="help_split.png" >	
+</body>
+</html>
