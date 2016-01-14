@@ -10,9 +10,9 @@ User are free to use this software under the GPL3 license.
 
 ##Usage
 
-###Desktop users please download the latest stable version from the official release page @ https://github.com/NJOGIS/NJRoadEditor/releases. Please see the NJRoadEditor [manual](https://github.com/NJOGIS/NJRoadEditor/blob/master/src/NJRoadEditor_3.1.0/Install/NJRoadEditorManual.pdf) for guidance on using the Add-In. Or contact the NJ Office of GIS for training info @ njgin@oit.nj.gov.
+- Desktop users please download the latest stable version from the official release page @ https://github.com/NJOGIS/NJRoadEditor/releases. Please see the NJRoadEditor [manual](https://github.com/NJOGIS/NJRoadEditor/blob/master/src/NJRoadEditor_3.1.0/Install/NJRoadEditorManual.pdf) for guidance on using the Add-In. Or contact the NJ Office of GIS for training info @ njgin@oit.nj.gov.
 
-###Developers please clone or fork.
+- Developers please clone or fork.
 
 ##Contributions
 
