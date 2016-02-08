@@ -899,7 +899,7 @@ class NewSegment(object):
             parameterType="Optional",
             direction="Input")
         param37.filter.type = "ValueList"
-        param37.filter.list = ["NJDOT SLD", "Tiger", "County", "MOD IV", "Other", "NJOIT", "Taxmap"]
+        param37.filter.list = ["NJDOT SLD", "Tiger", "County", "MOD IV", "Other", "NJOIT", "TAXMAP"]
 
         param33.category = "SEG_SHIELD"
         param34.category = "SEG_SHIELD"
