@@ -7802,6 +7802,7 @@ class EditNames(object):
         # ----------------------------------------------------------------------
         # Make sure the name type/ranks are valid
         L1H1 = [False]*2
+        Els = ['L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8']
         if parameters[0].values:
             Rchecks = parameters[0].values
             ntr = []; err = False
@@ -7815,7 +7816,7 @@ class EditNames(object):
             if not L1H1[0] and not L1H1[1]:
                 parameters[0].setErrorMessage("Missing L1 and/or H1 Name Record")
 
-            if (not L1H1[0] and L1H1[1]) and ('L2' or 'L3' or 'L4' or 'L5' or 'L6' or 'L7' or 'L8' in ntr):
+            if (not L1H1[0] and L1H1[1]) and len([x for x in ntr if x[0] == 'L' and int(x[1]) > 1 ]) > 0:
                 parameters[0].setErrorMessage("Missing L1 and/or H1 Name Record")
 
             ntrsort = sorted(ntr, reverse=True)
