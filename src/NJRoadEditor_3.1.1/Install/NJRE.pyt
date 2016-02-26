@@ -5849,7 +5849,7 @@ class LRS(object):
             parameterType="Optional",
             direction="Input")
         param14.filter.type = "ValueList"
-        param14.filter.list = ["North to South", "South to North", "East to West", "West to East"]
+        param14.filter.list = ["<null>", "North to South", "South to North", "East to West", "West to East"]
 
         #
         param15 = arcpy.Parameter(
@@ -6247,8 +6247,8 @@ class LRS(object):
                 parameters[11].setErrorMessage("Please Choose a ROUTE_TYPE_ID")
             if parameters[11].value < 7 and parameters[14].value not in ("North to South", "South to North", "East to West", "West to East"):
                 parameters[14].setErrorMessage("Please Choose an SLD_DIRECTION")
-            elif parameters[11].value >= 7 and parameters[14].value:
-                parameters[14].setErrorMessage("Please make SLD_DIRECTION a blank (clear the field)")
+            elif parameters[11].value >= 7 and parameters[14].value in ("North to South", "South to North", "East to West", "West to East"):
+                parameters[14].setErrorMessage("Please make SLD_DIRECTION <null>")
             else:
                 parameters[14].clearMessage()
 
@@ -6838,7 +6838,10 @@ class LRS(object):
                         cursor = arcpy.UpdateCursor(sldtab, seg_sql)
                         for row in cursor:
                             for cc in changeInds:
-                                row.setValue(walkXsld[cc], RecordsValues_sld[presentInd][cc])
+                                if cc == 5 and RecordsValues_sld[presentInd][cc]:
+                                    row.setValue(walkXsld[cc], None)
+                                else:
+                                    row.setValue(walkXsld[cc], RecordsValues_sld[presentInd][cc])
                                 arcpy.AddMessage('\nUpdated {0} in SLD_ROUTE. {1}, \nUpdated {2} from {3} to {4}'.format(key ,seg_sql, walkXsld[cc], self.Records_sld[ij][cc], RecordsValues_sld[i][cc]))
                             cursor.updateRow(row)
                         del row, cursor
@@ -6884,7 +6887,7 @@ class LRS(object):
                                 row.setValue("SLD_NAME", rec[3])
                             if rec[4]:
                                 row.setValue("SLD_COMMENT", rec[4])
-                            if rec[5]:
+                            if rec[5] and rec[5] is not '<null>':
                                 row.setValue("SLD_DIRECTION", rec[5])
                             if rec[6]:
                                 row.setValue("SIGN_NAME", rec[6])
