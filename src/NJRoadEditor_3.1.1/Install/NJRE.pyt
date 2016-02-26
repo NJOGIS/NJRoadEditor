@@ -6296,8 +6296,8 @@ class LRS(object):
                 if rec[3] == 2:
                     if rec[2]:
                         if len(rec[2]) == 10:
-                            if rec[2][8] != '_' or rec[2][9] != '_':
-                                parameters[0].setErrorMessage('Invalid SRI Value in {0}. If LRS_TYPE is 2, then positions 9 and 10 must be "_" '.format(rec[0]))
+                            if rec[2][9] != '_':
+                                parameters[0].setErrorMessage('Invalid SRI Value in {0}. If LRS_TYPE is 2, then position 10 must be "_" '.format(rec[0]))
                                 err = True; break
             if not err:
                 parameters[0].clearMessage()
