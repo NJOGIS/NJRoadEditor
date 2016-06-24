@@ -696,7 +696,7 @@ class NewSegment(object):
             parameterType="Required",
             direction="Input")
         param17.filter.type = "ValueList"
-        param17.filter.list = ["Highway Authority Route", "Highway Authority Ramp", "Interstate", "Insterstate Ramp", "US Highway", "US Highway Ramp", "State Highway", "State Highway Ramp", "County 500 Route", "County 500 Ramp", "Other County Route", "Other County Ramp", "Local Road", "Local Ramp", "Alley"]
+        param17.filter.list = ["Highway Authority Route", "Highway Authority Ramp", "Interstate", "Interstate Ramp", "US Highway", "US Highway Ramp", "State Highway", "State Highway Ramp", "County 500 Route", "County 500 Ramp", "Other County Route", "Other County Ramp", "Local Road", "Local Ramp", "Alley"]
         #param17.value = "Local Road"
 
         #
@@ -1093,7 +1093,7 @@ class NewSegment(object):
         # SEGMENT.ADDR - if it is a ramp, then don't allow addresses
         # SEG_NAME - if it is a ramp, then no segname record will be allowed
 
-        if parameters[17].value in ("Highway Authority Ramp", "Insterstate Ramp", "US Highway Ramp", "State Highway Ramp", "County 500 Ramp"):
+        if parameters[17].value in ("Highway Authority Ramp", "Interstate Ramp", "US Highway Ramp", "State Highway Ramp", "County 500 Ramp"):
             parameters[2].value = None
             parameters[3].value = None
             parameters[4].value = None
@@ -1309,7 +1309,7 @@ class NewSegment(object):
         # TRAVEL_DIR_TYPE Validation.
         # If it is a ramp, dir cant be 'both'
 
-        if parameters[17].value in ("Highway Authority Ramp", "Insterstate Ramp", "US Highway Ramp", "State Highway Ramp", "County 500 Ramp", "Other County Ramp", "Local Ramp"):
+        if parameters[17].value in ("Highway Authority Ramp", "Interstate Ramp", "US Highway Ramp", "State Highway Ramp", "County 500 Ramp", "Other County Ramp", "Local Ramp"):
             parameters[1].value = False
             if parameters[18].value == 'Both':
                 parameters[18].setErrorMessage("If SYMBOL_TYPE is a ramp, TRAVEL_DIR cannot be 'Both'.")
@@ -1421,9 +1421,9 @@ class NewSegment(object):
         if parameters[38].value and parameters[17].value:
             ss = re.search(' ',parameters[38].value)
             sri1 = parameters[38].value
-            if parameters[17].value in ("Highway Authority Ramp", "Insterstate Ramp", "US Highway Ramp", "State Highway Ramp", "County 500 Ramp", "Other County Ramp", "Local Ramp") and len(parameters[38].value) != 17:
+            if parameters[17].value in ("Highway Authority Ramp", "Interstate Ramp", "US Highway Ramp", "State Highway Ramp", "County 500 Ramp", "Other County Ramp", "Local Ramp") and len(parameters[38].value) != 17:
                 lre = 1
-            elif parameters[17].value not in ("Highway Authority Ramp", "Insterstate Ramp", "US Highway Ramp", "State Highway Ramp", "County 500 Ramp", "Other County Ramp", "Local Ramp") and len(parameters[38].value) != 10:
+            elif parameters[17].value not in ("Highway Authority Ramp", "Interstate Ramp", "US Highway Ramp", "State Highway Ramp", "County 500 Ramp", "Other County Ramp", "Local Ramp") and len(parameters[38].value) != 10:
                 lre = 3
             elif ss:
                 lre = 2
@@ -2670,7 +2670,7 @@ class SplitSegment(object):
             parameterType="Required",
             direction="Input")
         param17.filter.type = "ValueList"
-        param17.filter.list = ["Highway Authority Route", "Highway Authority Ramp", "Interstate", "Insterstate Ramp", "US Highway", "US Highway Ramp", "State Highway", "State Highway Ramp", "County 500 Route", "County 500 Ramp", "Other County Route", "Other County Ramp", "Local Road", "Local Ramp", "Alley"]
+        param17.filter.list = ["Highway Authority Route", "Highway Authority Ramp", "Interstate", "Interstate Ramp", "US Highway", "US Highway Ramp", "State Highway", "State Highway Ramp", "County 500 Route", "County 500 Ramp", "Other County Route", "Other County Ramp", "Local Road", "Local Ramp", "Alley"]
         #param17.value = "Local Road"
 
         #
@@ -2993,7 +2993,7 @@ class SplitSegment(object):
                     parameters[16].value = 'Under Construction'
         if segmentrow[19]:
             if not parameters[17].altered:
-                symboltypedict = {100: "Highway Authority Route", 108: "Highway Authority Ramp", 200: "Interstate", 208: "Insterstate Ramp", 300: "US Highway", 308: "US Highway Ramp", 400: "State Highway", 408: "State Highway Ramp", 500: "County 500 Route", 508: "County 500 Ramp", 600: "Other County Route", 608: "Other County Ramp", 700: "Local Road", 708: "Local Ramp", 900: "Alley"}
+                symboltypedict = {100: "Highway Authority Route", 108: "Highway Authority Ramp", 200: "Interstate", 208: "Interstate Ramp", 300: "US Highway", 308: "US Highway Ramp", 400: "State Highway", 408: "State Highway Ramp", 500: "County 500 Route", 508: "County 500 Ramp", 600: "Other County Route", 608: "Other County Ramp", 700: "Local Road", 708: "Local Ramp", 900: "Alley"}
                 parameters[17].value = symboltypedict[int(segmentrow[19])]
         if segmentrow[20]:
             if not parameters[18].altered:
@@ -3430,7 +3430,7 @@ class Merge(object):
             parameterType="Required",
             direction="Input")
         param17.filter.type = "ValueList"
-        param17.filter.list = ["Highway Authority Route", "Highway Authority Ramp", "Interstate", "Insterstate Ramp", "US Highway", "US Highway Ramp", "State Highway", "State Highway Ramp", "County 500 Route", "County 500 Ramp", "Other County Route", "Other County Ramp", "Local Road", "Local Ramp", "Alley"]
+        param17.filter.list = ["Highway Authority Route", "Highway Authority Ramp", "Interstate", "Interstate Ramp", "US Highway", "US Highway Ramp", "State Highway", "State Highway Ramp", "County 500 Route", "County 500 Ramp", "Other County Route", "Other County Ramp", "Local Road", "Local Ramp", "Alley"]
         #param17.value = "Local Road"
 
         #
@@ -3784,7 +3784,7 @@ class Merge(object):
                     parameters[16].value = 'Under Construction'
         if segmentrow[19]:
             if not parameters[17].altered:
-                symboltypedict = {100: "Highway Authority Route", 108: "Highway Authority Ramp", 200: "Interstate", 208: "Insterstate Ramp", 300: "US Highway", 308: "US Highway Ramp", 400: "State Highway", 408: "State Highway Ramp", 500: "County 500 Route", 508: "County 500 Ramp", 600: "Other County Route", 608: "Other County Ramp", 700: "Local Road", 708: "Local Ramp", 900: "Alley"}
+                symboltypedict = {100: "Highway Authority Route", 108: "Highway Authority Ramp", 200: "Interstate", 208: "Interstate Ramp", 300: "US Highway", 308: "US Highway Ramp", 400: "State Highway", 408: "State Highway Ramp", 500: "County 500 Route", 508: "County 500 Ramp", 600: "Other County Route", 608: "Other County Ramp", 700: "Local Road", 708: "Local Ramp", 900: "Alley"}
                 parameters[17].value = symboltypedict[int(segmentrow[19])]
         if segmentrow[20]:
             if not parameters[18].altered:
@@ -4484,7 +4484,7 @@ class MergeCleanup(object):
             parameterType="Required",
             direction="Input")
         param17.filter.type = "ValueList"
-        param17.filter.list = ["Highway Authority Route", "Highway Authority Ramp", "Interstate", "Insterstate Ramp", "US Highway", "US Highway Ramp", "State Highway", "State Highway Ramp", "County 500 Route", "County 500 Ramp", "Other County Route", "Other County Ramp", "Local Road", "Local Ramp", "Alley"]
+        param17.filter.list = ["Highway Authority Route", "Highway Authority Ramp", "Interstate", "Interstate Ramp", "US Highway", "US Highway Ramp", "State Highway", "State Highway Ramp", "County 500 Route", "County 500 Ramp", "Other County Route", "Other County Ramp", "Local Road", "Local Ramp", "Alley"]
 
         #
         param18 = arcpy.Parameter(
@@ -4815,7 +4815,7 @@ class MergeCleanup(object):
                     parameters[16].value = 'Under Construction'
         if segmentrow[19]:
             if not parameters[17].altered:
-                symboltypedict = {100: "Highway Authority Route", 108: "Highway Authority Ramp", 200: "Interstate", 208: "Insterstate Ramp", 300: "US Highway", 308: "US Highway Ramp", 400: "State Highway", 408: "State Highway Ramp", 500: "County 500 Route", 508: "County 500 Ramp", 600: "Other County Route", 608: "Other County Ramp", 700: "Local Road", 708: "Local Ramp", 900: "Alley"}
+                symboltypedict = {100: "Highway Authority Route", 108: "Highway Authority Ramp", 200: "Interstate", 208: "Interstate Ramp", 300: "US Highway", 308: "US Highway Ramp", 400: "State Highway", 408: "State Highway Ramp", 500: "County 500 Route", 508: "County 500 Ramp", 600: "Other County Route", 608: "Other County Ramp", 700: "Local Road", 708: "Local Ramp", 900: "Alley"}
                 parameters[17].value = symboltypedict[int(segmentrow[19])]
         if segmentrow[20]:
             if not parameters[18].altered:
