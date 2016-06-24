@@ -25,6 +25,8 @@ Contributors should fork this repo and submit pull requests regularly for code i
 - Oracle 11g, 12c
 - SQL Server 2008R2 (untested on 2012 and 2014, but should work)
 
+## Coming Soon Version 3.1.1
+
 ##Current Version: 3.1.0
 
 The latest stable version is NJRoadEditor_3.1.0. If you would like to download the `.esriaddin` file for quick installation (or full source code), Please go to the release page @ https://github.com/NJOGIS/NJRoadEditor/releases.
