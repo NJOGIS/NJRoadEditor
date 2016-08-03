@@ -8,6 +8,7 @@
 # Created:      9/22/2014
 # Copyright:    (c) NJ Office of GIS 2015
 # Licence:      GPLv3
+# 
 #-------------------------------------------------------------------------------
 
 # This program is free software: you can redistribute it and/or modify
@@ -24,6 +25,8 @@
 # along with this program.  It can be found in the ~Install\GPLv3_License.txt
 # If not, see <http://www.gnu.org/licenses/>.
 
+
+#------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 
 def calcGUID():
