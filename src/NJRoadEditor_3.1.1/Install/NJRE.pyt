@@ -7192,7 +7192,7 @@ class EditNames(object):
 
     def getParameterInfo(self):
         """Define parameter definitions"""
-
+        #0
         param0 = arcpy.Parameter(
             displayName="Add and Delete Records",
             name="seg_name_cols",
@@ -7203,7 +7203,7 @@ class EditNames(object):
         #param00.values = [[u'L1', u'guid', 'Name Full',False], [u'L2', u'guid', 'Name Full',False]] #"hey you;guys text2"  ['GPBoolean', 'Delete?']
         #param00.enabled = False
 
-        #
+        #1
         param1 = arcpy.Parameter(
             displayName="Current Record",
             name="current_record",
@@ -7212,7 +7212,7 @@ class EditNames(object):
             direction="Input")
         param1.filter.type = "ValueList"
 
-        #
+        #2
         param3 = arcpy.Parameter(
             displayName="NAME_TYPE_ID",
             name="NAME_TYPE_ID",
@@ -7225,7 +7225,7 @@ class EditNames(object):
         #-----------------------------------------------------------------------
         # SEG_SHIELD category
 
-        #
+        #3
         param4 = arcpy.Parameter(
             displayName="SHIELD_TYPE_ID (highway route shield)                              *Only required if Name Type is 'Highway'",
             name="SHIELD_TYPE_ID",
@@ -7235,7 +7235,7 @@ class EditNames(object):
         param4.filter.type = "ValueList"
         param4.filter.list = ["ACE", "ACB", "COR", "GSP", "INT", "PIP", "STR", "TPK", "USR"]
 
-        #
+        #4
         param5 = arcpy.Parameter(
             displayName="SHIELD_SUBTYPE_ID (highway route shield modifier)          *Only required if Name Type is 'Highway'",
             name="SHIELD_SUBTYPE_ID",
@@ -7245,7 +7245,7 @@ class EditNames(object):
         param5.filter.type = "ValueList"
         param5.filter.list = ["A", "B", "C", "E", "M", "S", "T", "Y"]
 
-        #
+        #5
         param6 = arcpy.Parameter(
             displayName="SHIELD_NAME (highway route number)                               *Only required if Name Type is 'Highway'",
             name="SHIELD_NAME",
@@ -7561,7 +7561,7 @@ class EditNames(object):
                     symtype = row[0]
             del cursor, row
             if int(symtype) == 100:
-                parameters[3].filter.list = ["ACE", "ACB", "GSP", "PIP", "TPK"]
+            #    parameters[3].filter.list = ["ACE", "ACB", "GSP", "PIP", "TPK"]
                 parameters[5].enabled = False
         except:
             pass
@@ -7635,9 +7635,9 @@ class EditNames(object):
             parameters[7].value = fnn.concatenate()
 
         if parameters[3].value == "TPK":
-            parameters[9].value = emptyval;parameters[10].value = emptyval;parameters[11].value = emptyval;parameters[12].value = emptyval;parameters[13].value = emptyval;parameters[14].value = emptyval;parameters[15].value = emptyval
-            parameters[12].value = "New Jersey"
-            parameters[13].value = "Turnpike"
+            parameters[9].value = emptyval;parameters[10].value = emptyval;parameters[11].value = emptyval;parameters[12].value = emptyval;parameters[13].value = emptyval;parameters[14].value = emptyval
+            parameters[11].value = "New Jersey"
+            parameters[12].value = "Turnpike"
             fnn = erebus.FullName(parameters[8].value, parameters[9].value, parameters[10].value, parameters[11].value, parameters[12].value, parameters[13].value, parameters[14].value)
             parameters[7].value = fnn.concatenate()
 

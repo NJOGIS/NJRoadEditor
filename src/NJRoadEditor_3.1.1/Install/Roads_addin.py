@@ -6,7 +6,7 @@
 # Contact:      njgin@oit.nj.gov
 #
 # Created:      9/22/2014
-# Copyright:    (c) NJ Office of GIS 2015
+# Copyright:    (c) NJ Office of GIS 2016
 # Licence:      GPLv3
 
 #-------------------------------------------------------------------------------
