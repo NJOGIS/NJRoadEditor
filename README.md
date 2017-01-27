@@ -20,7 +20,7 @@ Contributors should fork this repo and submit pull requests regularly for code i
 
 ##Compatibility
 
-- ESRI ArcGIS Desktop 10.3.1, 10.3.1 replica geodatabase
+- ESRI ArcGIS Desktop 10.4.1, 10.4.1 replica geodatabase or earlier
 - Python 2.7.8 (32-bit) + arcpy
 - Oracle 11g, 12c
 - SQL Server 2008R2 (untested on 2012 and 2014, but should work)
@@ -52,5 +52,4 @@ Please submit issues and/or bugs through the issues page at https://github.com/N
 ##Credits
 
 - NJ Office of GIS
-- Code Contributors: Ed Farrell @EdFarrell
-                     Chris Klaube
+- Code Contributors: Chris Klaube @cklaube
