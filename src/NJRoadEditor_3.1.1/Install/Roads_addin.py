@@ -26,15 +26,22 @@
 # If not, see <http://www.gnu.org/licenses/>.
 
 #-------------------------------------------------------------------------------
+import imp
+import os
+
 import arcpy
 import logging
 import subprocess
 import pythonaddins
 import os
+import time
 import socket
 import pickle
 import json
 import traceback
+import pipes
+from threading import Thread
+from Queue import Queue, Empty
 os.sys.path.append(os.path.dirname(__file__))
 import erebus
 plist = os.sys.path
@@ -45,10 +52,15 @@ if esriversion.split('.')[1] == '2' and 'C:\\Python27\\ArcGIS10.2' not in plist:
 if esriversion.split('.')[1] == '3' and 'C:\\Python27\\ArcGIS10.3' not in plist:
     os.sys.path.append(r'C:\Python27\ArcGIS10.3')
     os.sys.path.append(r'C:\Python27\ArcGIS10.3\Scripts')
+if esriversion.split('.')[1] == '4' and 'C:\\Python27\\ArcGIS10.4' not in plist:
+    os.sys.path.append(r'C:\Python27\ArcGIS10.4')
+    os.sys.path.append(r'C:\Python27\ArcGIS10.4\Scripts')
 if esriversion.split('.')[1] == '2':
     pyexe = 'C:\Python27\ArcGIS10.2\python.exe'
 if esriversion.split('.')[1] == '3':
     pyexe = 'C:\Python27\ArcGIS10.3\python.exe'
+if esriversion.split('.')[1] == '4':
+    pyexe = 'C:\Python27\ArcGIS10.4\python.exe'
 
 # check the user environment PATH.
 def pathcheck(version):
@@ -67,9 +79,8 @@ lastselect_fields = "Empty"
 segmentgeo = "Empty"
 INTOOL = False
 tbxloc2 = os.path.dirname(__file__) + r"\NJRE.pyt"
-
-global tbxloc2
-
+listenevents = True
+global tbxloc2, listenevents
 
 
 segmentfc = ""; segmentchangetab = ""; transtab = ""; segnametab = ""; segshieldtab = ""; segcommtab = ""; linreftab = ""; sldtab = "";
@@ -109,6 +120,358 @@ NJRE_handler = None
 # create a logging format
 #NJRE_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 #NJRE_handler.setFormatter(NJRE_formatter)
+
+
+#------------------------------------------------------------------------------
+# COMBOBOX - SEG_GUID Search
+class SegSearch(object):
+    """Implementation for Roads_addin.segmentSearch (ComboBox)"""
+    def __init__(self):
+        self.items = []
+        self.editable = True
+        self.enabled = True
+        self.dropdownWidth = 'WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW'
+        self.width = 'WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW'
+        self.segguid = ''
+        global segmentfc, segmentchangetab, transtab, segnametab, segshieldtab, segcommtab, linreftab, sldtab, NJRE_logger, userType
+    def onSelChange(self, selection):
+        self.segguid = str(selection)
+
+    def onEditChange(self, text):
+        self.segguid = str(text)
+
+    def onFocus(self, focused):
+        pass
+    def onEnter(self):
+        NJRE_logger.info('Searching for SEG_GUID: ' + str(self.segguid))
+        mxd = arcpy.mapping.MapDocument('CURRENT')
+        df = arcpy.mapping.ListDataFrames(mxd)[0]
+        try:
+            lyr = arcpy.mapping.ListLayers(mxd,"ROAD.SEGMENT",df)[0]
+            sqlquery = "%s = '%s'" % ('SEG_GUID',str(self.segguid))
+            arcpy.SelectLayerByAttribute_management(lyr, "NEW_SELECTION",sqlquery)
+            df.zoomToSelectedFeatures()
+        except:
+            trace = traceback.format_exc()
+            NJRE_logger.error('Segment Search failed with exception')
+            NJRE_logger.exception(trace)
+    def refresh(self):
+        pass
+
+
+
+#------------------------------------------------------------------------------
+# BUTTON - BATCH EDIT SEGNAMES
+
+class BatchEditNames(object):
+    """Implementation for Roads_addin.buttonBatchEditNames (Button)"""
+    def __init__(self):
+        self.enabled = False
+        self.checked = False
+        global segmentfc, segmentchangetab, transtab, segnametab, segshieldtab, segcommtab, linreftab, sldtab, NJRE_logger, userType, listenevents
+    def onClick(self):
+        print 'Batch Edit Names tool called'
+        global tbxloc2, monitorOp,pyexe, listenevents
+        NJRE_logger.info('Batch Edit Names tool called')
+        listenevents = False
+
+        try:
+            fidset = arcpy.Describe(segmentfc).FIDset
+            count = len(fidset.split("; "))
+
+            if fidset and count < 100:
+                INTOOL = True
+
+                # Gather the reference data from the segname records
+                incomingNamesRef = {}
+                shields = {}
+
+                with arcpy.da.SearchCursor(segmentfc, ["SEG_GUID"]) as cursor:  # insert a cursor to access fields, print names
+                    for row in cursor:
+                        incomingNamesRef[row[0]] = {'names':[],'shields':[]}
+                segguids = incomingNamesRef.keys()
+
+                # For each selected segment, gather the SEG_NAME and SEG_SHIELD records, add to incomingNamesRef object
+                for seg in segguids:
+                    selectquery = erebus.sqlGUID('SEG_GUID',seg)
+                    with arcpy.da.SearchCursor(segnametab, ["SEG_GUID","NAME_TYPE_ID","RANK","NAME_FULL","PRE_DIR","PRE_TYPE","PRE_MOD","NAME","SUF_TYPE","SUF_DIR","SUF_MOD","DATA_SRC_TYPE_ID"],selectquery) as namecursor:  # insert a cursor to access fields, print names
+                        for row in namecursor:
+                            incname = {'type':      row[1],
+                                       'rank':      row[2],
+                                       'namefull':  row[3],
+                                       'predir':    row[4],
+                                       'pretype':    row[5],
+                                       'premod':    row[6],
+                                       'name':      row[7],
+                                       'suftype':   row[8],
+                                       'sufdir':    row[9],
+                                       'sufmod':    row[10],
+                                       'datasrctype':row[11]}
+                            incomingNamesRef[row[0]]['names'].append(incname)
+
+                    with arcpy.da.SearchCursor(segshieldtab, ["SEG_GUID","RANK","SHIELD_TYPE_ID","SHIELD_SUBTYPE_ID","SHIELD_NAME"],selectquery) as shieldcursor:  # insert a cursor to access fields, print names
+                        for shieldrow in shieldcursor:
+                            incshield = {'rank':    shieldrow[1],
+                                       'shieldtype':shieldrow[2],
+                                       'shieldsubtype':shieldrow[3],
+                                       'shieldname':shieldrow[4]}
+                            incomingNamesRef[row[0]]['shields'].append(incshield)
+
+                # Iterate through incomingNamesRef and consolidate shield information into the names records
+                for k,v in incomingNamesRef.items():
+                    names = v['names']
+                    shields = v['shields']
+                    newnames = []
+                    for name in names:
+                        if name['type'] == 'H':
+                            newshield = None
+                            for shield in shields:
+                                if shield['rank'] == name['rank']:
+                                    newshield = shield
+                            if newshield:
+                                print 'newshield: ' + str(newshield)
+                                name['shieldtype'] = newshield['shieldtype']
+                                name['shieldsubtype'] = newshield['shieldsubtype']
+                                name['shieldname'] = newshield['shieldname']
+                            else:
+                                name['shieldtype'] = None
+                                name['shieldsubtype'] = None
+                                name['shieldname'] = None
+                        else:
+                            name['shieldtype'] = None
+                            name['shieldsubtype'] = None
+                            name['shieldname'] = None
+                        newnames.append(name)
+                    incomingNamesRef[k] = {'names':newnames}
+
+                # -----------------------------
+                # Dump the incomingNamesRef out as a pickle.
+                batchnames_path = os.path.join(arcpy.env.scratchWorkspace, "batchnames.p")
+                if os.path.exists(batchnames_path):
+                    os.remove(batchnames_path)
+                with open(batchnames_path, 'wb') as output:
+                    pickle.dump(incomingNamesRef, output, -1)
+
+
+                # Start up the Batch Edit Names Tool
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                idpath = os.path.join(os.path.dirname(__file__), 'batcheditnamesTool.exe')
+
+                pipe = subprocess.Popen([idpath,pipes.quote(str(arcpy.env.scratchWorkspace))], startupinfo=startupinfo,stdin=subprocess.PIPE, stdout = subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+                pipe.communicate()
+
+                if pipe.returncode != 0:
+                    pass
+                else:
+                    # Load the output names pickle
+                    output_path = os.path.join(arcpy.env.scratchWorkspace, "batchnames_output.p")
+                    if os.path.exists(output_path):
+                        with open(output_path,'rb') as namesfile:
+                            outputnames = pickle.load(namesfile)
+
+                        if outputnames:
+                            print 'Output names Found!'
+                            print outputnames
+
+                            result = pythonaddins.MessageBox('Are you sure you want to commit batch name edits to the database?', 'Commit Batch Edits', 4)
+                            if result == 'Yes':
+                                # If User confirms the edits, start an edit session and
+                                #1 Remove existing SEG_NAMES
+                                #2 Remove existing SEG_SHIELDS
+                                #3 Insert new SEG_NAME records
+                                #4 Insert new SEG_SHIELD records
+                                #5 Update PRIME_NAME in SEGMENT fc
+                                segguids = outputnames['segs']
+                                segnames = outputnames['names']
+                                edit = arcpy.da.Editor(arcpy.env.workspace)
+                                edit.startEditing(False, True)
+
+                                edit.startOperation()
+                                delQuery =  "%s IN %s" % ('SEG_GUID', str(tuple(segguids)))
+                                try:
+                                    with arcpy.da.UpdateCursor(segnametab,['SEG_GUID'],delQuery) as delnamescursor:
+                                        for name in delnamescursor:
+                                            delnamescursor.deleteRow()
+                                            #if name[0] in segguids:
+                                            #    delnamescursor.deleteRow()
+                                    print 'BatchNameProcessing: Removed existing names'
+                                except:
+                                    print 'BatchNameProcessing: Removed existing names FAILED'
+                                    print traceback.format_exc()
+                                edit.stopOperation()
+
+                                edit.startOperation()
+                                try:
+                                    with arcpy.da.UpdateCursor(segshieldtab,['SEG_GUID'],delQuery) as delshieldscursor:
+                                        for shield in delshieldscursor:
+                                            delshieldscursor.deleteRow()
+                                            #if shield[0] in segguids:
+                                            #    delshieldscursor.deleteRow()
+                                    print 'BatchNameProcessing: Removed existing shield records'
+                                except:
+                                    print 'BatchNameProcessing: Removed existing shield records FAILED'
+                                    print traceback.format_exc()
+                                edit.stopOperation()
+
+                                edit.startOperation()
+                                primename = ''
+                                primemissing = True
+                                try:
+                                    namescursor =  arcpy.da.InsertCursor(segnametab,['SEG_GUID','NAME_TYPE_ID','RANK','NAME_FULL','PRE_DIR',
+                                                                                          'PRE_TYPE','PRE_MOD','NAME','SUF_TYPE','SUF_DIR',
+                                                                                          'SUF_MOD','DATA_SRC_TYPE_ID'])
+                                    for x in segguids:
+                                        for n in segnames:
+                                            if n['rank'] == 1:
+                                                if primemissing:
+                                                    primename = n['namefull']
+                                                    if n['type'] == 'L':
+                                                        primemissing = False
+                                            row = [x,n['type'],n['rank'],n['namefull'],n['predir'], n['pretype'],n['premod'],n['name'],
+                                                   n['suftype'],n['sufdir'],n['sufmod'],n['datasrctype']]
+                                            namescursor.insertRow(row)
+                                    del namescursor
+                                    print 'BatchNameProcessing: Added new names'
+                                except:
+                                    try: del namescursor
+                                    except: pass
+                                    print 'BatchNameProcessing: Added new names FAILED'
+                                    print traceback.format_exc()
+                                edit.stopOperation()
+
+                                edit.startOperation()
+                                try:
+                                    def checksubtype(val):
+                                        if val is None:
+                                            return 'M'
+                                        else:
+                                            return val
+                                    shieldcursor =  arcpy.da.InsertCursor(segshieldtab,['SEG_GUID','RANK','SHIELD_TYPE_ID','SHIELD_SUBTYPE_ID',
+                                                                                        'SHIELD_NAME','DATA_SRC_TYPE_ID'])
+                                    for x in segguids:
+                                        for n in segnames:
+                                            if n['type'] == 'H':
+                                                row = [x,n['rank'],n['shieldtype'],checksubtype(n['shieldsubtype']),n['shieldname'],n['datasrctype']]
+                                                shieldcursor.insertRow(row)
+                                    del shieldcursor
+                                    print 'BatchNameProcessing: Added new shields'
+                                except:
+                                    try: del shieldcursor
+                                    except: pass
+                                    print 'BatchNameProcessing: Added new shields FAILED'
+                                    print traceback.format_exc()
+                                edit.stopOperation()
+
+                                edit.startOperation()
+                                try:
+                                    if primename:
+                                        with arcpy.da.UpdateCursor(segmentfc,['SEG_GUID','PRIME_NAME'],delQuery) as segprimecursor:
+                                            for seg in segprimecursor:
+                                                #if seg[0] in segguids:
+                                                seg[1] = primename
+                                                segprimecursor.updateRow(seg)
+                                        print "BatchNameProcessing: Updated PRIME_NAMEs"
+                                except:
+                                    print "BatchNameProcessing: Updated PRIME_NAMEs FAILED"
+                                    print traceback.format_exc()
+                                edit.stopOperation()
+
+                    else:
+                        print 'ERROR: Cant find output names pickle!'
+
+                listenevents = True
+            else:
+
+                pythonaddins.MessageBox('Batch Edit Names tool failed. No segment was selected in SEGMENT feature class. Please select a segment.', 'Batch EditNames Error', 0)
+                NJRE_logger.warning('Batch Edit Names tool failed. No segment was selected in SEGMENT feature class. User received message box.')
+                listenevents = True
+
+        except:
+            trace = traceback.format_exc()
+            print trace
+            NJRE_logger.error('Batch Edit Names tool failed with exception')
+            NJRE_logger.exception(trace)
+            listenevents = True
+
+
+
+#------------------------------------------------------------------------------
+# BUTTON - SEGMENT COMMENTS
+
+class ButtonClass86(object):
+    """Implementation for Roads_addin.buttonSegmentComment (Button)"""
+    def __init__(self):
+        self.enabled = False
+        self.checked = False
+        global segmentfc, segmentchangetab, transtab, segnametab, segshieldtab, segcommtab, linreftab, sldtab, NJRE_logger, userType
+    def onClick(self):
+
+        global tbxloc2, monitorOp,pyexe
+        NJRE_logger.info('Segment comment tool called')
+
+        try:
+            fidset = arcpy.Describe(segmentfc).FIDset
+            count = len(fidset.split("; "))
+
+            if fidset and count < 1000:
+                INTOOL = True
+                segcomments = {'segguids':[],'comments':[]}
+                with arcpy.da.SearchCursor(segmentfc, ["SEG_GUID"]) as cursor:  # insert a cursor to access fields, print names
+                    for row in cursor:
+                        segcomments['segguids'].append(row[0])
+
+                # -----------------------------
+                # Get the segcomments object with SEG_GUIDs and dump them out as a pickle. This is necessary because they are too big to push through to a subprocess
+                commentlist_path = os.path.join(arcpy.env.scratchWorkspace, "segcommentlist.p")
+                if os.path.exists(commentlist_path):
+                    os.remove(commentlist_path)
+                with open(commentlist_path, 'wb') as output:
+                    pickle.dump(segcomments, output, -1)
+
+
+                # Start up the Segment Comment Tool
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                idpath = os.path.join(os.path.dirname(__file__), 'segcommentTool.exe')
+
+                pipe = subprocess.Popen([idpath,pipes.quote(str(arcpy.env.scratchWorkspace))], startupinfo=startupinfo,stdin=subprocess.PIPE, stdout = subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+                print "started pipe"
+
+                (stdout, stderr) = pipe.communicate()
+
+                if stderr:
+                    print 'stderrdata:  {0}'.format(stderr)
+                if stdout:
+                    print 'stoutdata:  {0}'.format(str(stdout))
+
+                # Load the comments pickle
+                if os.path.exists(commentlist_path):
+                    with open(commentlist_path,'rb') as commentsfile:
+                        newcomments = pickle.load(commentsfile)
+
+                    if newcomments['comments']:
+                        print 'New Comments Found!: ' + str(newcomments['comments'])
+                        #TODO Write out the new comments to the database- commit edits and confirm they are written- DONE
+                        commentprocessing = erebus.CommentProcessing(newcomments, [segmentfc, segnametab, segshieldtab, linreftab, sldtab, segcommtab, transtab, segmentchangetab], arcpy.env.scratchWorkspace, userType)
+                        commgp_result = commentprocessing.run()
+                        print 'CommProcResult: ' + str(commgp_result)
+                        #arcpy.SelectLayerByAttribute_management(segmentfc, 'CLEAR_SELECTION')
+                        arcpy.RefreshActiveView()
+                else:
+                    print 'ERROR: Cant find segment comments pickle!'
+
+
+            else:
+
+                pythonaddins.MessageBox('SegmentComment tool failed. No segment was selected in SEGMENT feature class. Please select a segment.', 'SegmentComments Error', 0)
+                NJRE_logger.warning('SegmentComment tool failed. No segment was selected in SEGMENT feature class. User received message box.')
+
+
+        except:
+            trace = traceback.format_exc()
+            NJRE_logger.error('Segment Comment tool failed with exception')
+            NJRE_logger.exception(trace)
 
 #------------------------------------------------------------------------------
 # BUTTON - EDIT SEGMENT
@@ -212,7 +575,7 @@ class ButtonClass43(object):
                 NJRE_logger.info('EditNames tool finished')
 
             else:
-                pythonaddins.MessageBox('No segment, or more than one segment is selected in SEGMENT feature class. Please selected 1 segment and try again.', 'EditSegment Error', 0)
+                pythonaddins.MessageBox('No segment, or more than one segment is selected in SEGMENT feature class. Please select a segment and try again.', 'EditSegment Error', 0)
                 NJRE_logger.warning('EditSegment tool failed. No segment, or more than one segment is selected in SEGMENT feature class. User received message box.')
 
 
@@ -637,6 +1000,7 @@ class ButtonClass337(object):
             NJRE_logger.error('Data Model tool failed with exception')
             NJRE_logger.exception(trace)
 
+
 #------------------------------------------------------------------------------
 # EXTENSION - NJ ROAD EDITOR EXTENSION
 class ExtensionClass1(object):
@@ -644,6 +1008,7 @@ class ExtensionClass1(object):
     def __init__(self):
         # For performance considerations, please remove all unused methods in this class.
         self.enabled = True
+
         global esesh, monitorOp, lastselect, lastselect_fields, INTOOL, selectedfootprints_multiple
         global segmentfc, segmentchangetab, transtab, segnametab, segshieldtab, segcommtab, linreftab, sldtab, NJRE_logger
 
@@ -732,188 +1097,190 @@ class ExtensionClass1(object):
         # Endpoint: NewFeature, DeleteFeature,
         print "onEditorSelectionChanged"
         #print esesh
-        global monitorOp, esesh, INTOOL, lastselect, lastselect_fields, lastselect_multiple, segmentgeo, segmentgeo_multiple, NJRE_logger, selectedfootprints_multiple, pyexe
-        print monitorOp
-        import erebus
 
-        if self.NJRE_Env:
-            # Grab the last selected segment (only one segment)
-            try:
-                with arcpy.da.SearchCursor(segmentfc, "*") as cursor:  # insert a cursor to access fields, print names
-                    ii = 0
-                    for row in cursor:
-                        segselect = row
-                        segselect_fields = cursor.fields
-                        ii += 1
-                        if ii > 1:
-                            break
-                with arcpy.da.SearchCursor(segmentfc, ["SHAPE@"]) as geocursor:  # get the geometry object
-                    ii = 0
-                    for geo in geocursor:
-                        geoobject = geo
-                        ii += 1
-                        if ii > 1:
-                            break
-                if ii == 1:
-                    dictiter = {}
-                    for i,field in enumerate(segselect_fields):
-                        dictiter[field] = segselect[i]
+        global monitorOp, esesh, INTOOL, lastselect, lastselect_fields, lastselect_multiple, segmentgeo, segmentgeo_multiple, NJRE_logger, selectedfootprints_multiple, pyexe, listenevents
+        if listenevents:
+            print monitorOp
+            import erebus
 
-                    if "SEG_GUID" in dictiter.keys():
-                        #print 'dictiter %s' % type(dictiter['SEG_GUID'])
-                        if dictiter["SEG_GUID"] is not None:
-                            Fp = erebus.Footprint(dictiter["SEG_GUID"])
-                            lastselect = Fp.getfootprint([segmentfc, segnametab, segshieldtab, linreftab, sldtab, segcommtab, transtab, segmentchangetab])  #['SEGMENT', 'SEG_NAME', 'SEG_SHIELD', 'LINEAR_REF', 'SLD_ROUTE', 'SEGMENT_COMMENTS', 'SEGMENT_TRANS', 'SEGMENT_CHANGE']
-                        else:
-                            lastselect = {'SEGMENT': [dictiter]}
-                    else:
-                        lastselect = {'SEGMENT': [dictiter]}
-                    for g in geoobject:
-                        segmentgeo = g
-            except:
-                print(traceback.format_exc())
-                trace = traceback.format_exc()
-                NJRE_logger.error('Last selected segment tool failed with exception')
-                NJRE_logger.exception(trace)
-            # Grab the last mulitple selection (this maxes out at 10)
-            try:
-                selectedrows = []; selectedgeo = []; selectedfootprints = [];
-                maxselect = 10
-                with arcpy.da.SearchCursor(segmentfc, "*") as cursor:  # insert a cursor to access fields, print names
-                    jj = 0
-                    segselect_fields = cursor.fields
-                    for row in cursor:
-                        selectedrows.append(row)
+            if self.NJRE_Env:
+                # Grab the last selected segment (only one segment)
+                try:
+                    with arcpy.da.SearchCursor(segmentfc, "*") as cursor:  # insert a cursor to access fields, print names
+                        ii = 0
+                        for row in cursor:
+                            segselect = row
+                            segselect_fields = cursor.fields
+                            ii += 1
+                            if ii > 1:
+                                break
+                    with arcpy.da.SearchCursor(segmentfc, ["SHAPE@"]) as geocursor:  # get the geometry object
+                        ii = 0
+                        for geo in geocursor:
+                            geoobject = geo
+                            ii += 1
+                            if ii > 1:
+                                break
+                    if ii == 1:
                         dictiter = {}
                         for i,field in enumerate(segselect_fields):
-                            dictiter[field] = row[i]
+                            dictiter[field] = segselect[i]
+
                         if "SEG_GUID" in dictiter.keys():
-                            Fp = erebus.Footprint(dictiter["SEG_GUID"])
-                            selectedfootprints.append(Fp.getfootprint([segmentfc, segnametab, segshieldtab, linreftab, sldtab, segcommtab, transtab, segmentchangetab]))
-                        jj += 1
-                        if jj > maxselect:
-                            break
-                with arcpy.da.SearchCursor(segmentfc, ["SHAPE@"]) as geocursor:  # get the geometry object
-                    jj = 0
-                    for geo in geocursor:
-                        selectedgeo.append(geo[0])
-                        jj += 1
-                        if jj > maxselect:
-                            break
-                if jj > 1 and jj <= maxselect:
-                    lastselect_multiple = selectedrows
-                    segmentgeo_multiple = selectedgeo
-                    selectedfootprints_multiple = selectedfootprints
-                try:
-                    multipleselectlength = len(lastselect_multiple)
+                            #print 'dictiter %s' % type(dictiter['SEG_GUID'])
+                            if dictiter["SEG_GUID"] is not None:
+                                Fp = erebus.Footprint(dictiter["SEG_GUID"])
+                                lastselect = Fp.getfootprint([segmentfc, segnametab, segshieldtab, linreftab, sldtab, segcommtab, transtab, segmentchangetab])  #['SEGMENT', 'SEG_NAME', 'SEG_SHIELD', 'LINEAR_REF', 'SLD_ROUTE', 'SEGMENT_COMMENTS', 'SEGMENT_TRANS', 'SEGMENT_CHANGE']
+                            else:
+                                lastselect = {'SEGMENT': [dictiter]}
+                        else:
+                            lastselect = {'SEGMENT': [dictiter]}
+                        for g in geoobject:
+                            segmentgeo = g
                 except:
-                    multipleselectlength = False
-            except:
-                trace = traceback.format_exc()
-                print(trace)
-                NJRE_logger.error('Last selected multiple segment tool failed with exception')
-                NJRE_logger.exception(trace)
-
-        ########################################################################
-        ########################################################################
-        # Endpoint for NewSegment
-        if monitorOp == "1010" and self.NJRE_Env:
-            NJRE_logger.info('New Segment endpoint')
-            try:
-                newsegmentpath = arcpy.env.scratchWorkspace + "\\newsegmentselection.p"
-                with open(newsegmentpath, 'wb') as output:
-                    pickle.dump([lastselect, segmentgeo], output, -1) # outputs the row from the last selected segment, and ["SHAPE@"]
-                INTOOL = True
-                NJRE_logger.info('New Segment tool called')
-                pythonaddins.GPToolDialog(tbxloc2, "NewSegment") # launch the NewSegment script tool
-                INTOOL = False
-                esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0;
-                monitorOp = "Empty"
-                # clear the selected feature
+                    print(traceback.format_exc())
+                    trace = traceback.format_exc()
+                    NJRE_logger.error('Last selected segment tool failed with exception')
+                    NJRE_logger.exception(trace)
+                # Grab the last mulitple selection (this maxes out at 10)
                 try:
-                    arcpy.SelectLayerByAttribute_management(segmentfc, 'CLEAR_SELECTION')
+                    selectedrows = []; selectedgeo = []; selectedfootprints = [];
+                    maxselect = 10
+                    with arcpy.da.SearchCursor(segmentfc, "*") as cursor:  # insert a cursor to access fields, print names
+                        jj = 0
+                        segselect_fields = cursor.fields
+                        for row in cursor:
+                            selectedrows.append(row)
+                            dictiter = {}
+                            for i,field in enumerate(segselect_fields):
+                                dictiter[field] = row[i]
+                            if "SEG_GUID" in dictiter.keys():
+                                Fp = erebus.Footprint(dictiter["SEG_GUID"])
+                                selectedfootprints.append(Fp.getfootprint([segmentfc, segnametab, segshieldtab, linreftab, sldtab, segcommtab, transtab, segmentchangetab]))
+                            jj += 1
+                            if jj > maxselect:
+                                break
+                    with arcpy.da.SearchCursor(segmentfc, ["SHAPE@"]) as geocursor:  # get the geometry object
+                        jj = 0
+                        for geo in geocursor:
+                            selectedgeo.append(geo[0])
+                            jj += 1
+                            if jj > maxselect:
+                                break
+                    if jj > 1 and jj <= maxselect:
+                        lastselect_multiple = selectedrows
+                        segmentgeo_multiple = selectedgeo
+                        selectedfootprints_multiple = selectedfootprints
+                    try:
+                        multipleselectlength = len(lastselect_multiple)
+                    except:
+                        multipleselectlength = False
                 except:
-                    print 'Failed to clear selected feature of segmentfc'
-                NJRE_logger.info('New Segment tool ran')
-            except:
-                trace = traceback.format_exc()
-                NJRE_logger.error('New Segment tool failed with exception')
-                pythonaddins.MessageBox('The NJRE Python Add-In New Segment tool failed due to an error. Please email the "NJRE_logger.log" log file (in your scratch workspace) to njgin@oit.state.nj.us\n\n\n{0}'.format(trace), 'New Segment Error', 0)
-                NJRE_logger.exception(trace)
+                    trace = traceback.format_exc()
+                    print(trace)
+                    NJRE_logger.error('Last selected multiple segment tool failed with exception')
+                    NJRE_logger.exception(trace)
 
-        ########################################################################
-        ########################################################################
-        if monitorOp == "1101" and self.NJRE_Env: # merge endpoint
-            NJRE_logger.info('Merge endpoint')
-            try:
-                contin = True
-                if multipleselectlength > 2:  #multipleselectlength >= maxselect how it used to be for multiple features.
-                    selecterror = pythonaddins.MessageBox('You have selcted more than 2 features to merge. The NJ Road Editor Add-In does not support this operation.\n\n Please "undo" the merge and try again. ', 'Merge Error', 0)
-                    esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
+            ########################################################################
+            ########################################################################
+            # Endpoint for NewSegment
+            if monitorOp == "1010" and self.NJRE_Env:
+                NJRE_logger.info('New Segment endpoint')
+                try:
+                    newsegmentpath = arcpy.env.scratchWorkspace + "\\newsegmentselection.p"
+                    with open(newsegmentpath, 'wb') as output:
+                        pickle.dump([lastselect, segmentgeo], output, -1) # outputs the row from the last selected segment, and ["SHAPE@"]
+                    INTOOL = True
+                    NJRE_logger.info('New Segment tool called')
+                    pythonaddins.GPToolDialog(tbxloc2, "NewSegment") # launch the NewSegment script tool
+                    INTOOL = False
+                    esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0;
                     monitorOp = "Empty"
-                    contin = False
-                if multipleselectlength == 0:  #multipleselectlength >= maxselect how it used to be for multiple features.
-                    esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
-                    monitorOp = "Empty"
-                    contin = False
-                if contin == True:
-                    # What mode would you like to run in? Cleanup or Standard?
-                    # Pickling an arcpy Polyline object strips out the "curvePaths" key. To avoid this lets export as WKT with the curve vertices (all of them)
-                    # convert the wkt to esrijson
+                    # clear the selected feature
+                    try:
+                        arcpy.SelectLayerByAttribute_management(segmentfc, 'CLEAR_SELECTION')
+                    except:
+                        print 'Failed to clear selected feature of segmentfc'
+                    NJRE_logger.info('New Segment tool ran')
+                except:
+                    trace = traceback.format_exc()
+                    NJRE_logger.error('New Segment tool failed with exception')
+                    pythonaddins.MessageBox('The NJRE Python Add-In New Segment tool failed due to an error. Please email the "NJRE_logger.log" log file (in your scratch workspace) to njgin@oit.state.nj.us\n\n\n{0}'.format(trace), 'New Segment Error', 0)
+                    NJRE_logger.exception(trace)
 
-                    segmentgeo_multiple2 = []
-                    for g in segmentgeo_multiple:
-                        segmentgeo_multiple2.append(str(g.WKT))
-                    segmentgeo_multiple = segmentgeo_multiple2
-
-                    splitpath = arcpy.env.scratchWorkspace + "\\mergeselection_multiple.p"
-                    with open(splitpath, 'wb') as output:
-                        pickle.dump([lastselect_multiple, segmentgeo_multiple, selectedfootprints_multiple], output, -1) # outputs the row from the last selected segment, and ["SHAPE@"]
-                    startupinfo = subprocess.STARTUPINFO()
-                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    idpath = os.path.join(os.path.dirname(__file__), 'mergeOptions.py')
-                    pipe = subprocess.Popen([pyexe, idpath], startupinfo=startupinfo, stdout = subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
-                    (stdoutdata, stderrdata) = pipe.communicate()
-                    pipe.terminate()
-                    if stderrdata:
-                            print 'stderrdata:  {0}'.format(stderrdata)
-                    if stdoutdata:
-                            mergemode = stdoutdata.split('***')[0]
-
-                    if mergemode == "Cleanup":
-                        INTOOL = True
-                        NJRE_logger.info('Merge Cleanup tool called on {0} and {1}'.format(erebus.sqlGUID("SEG_GUID", lastselect_multiple[0][2]), erebus.sqlGUID("SEG_GUID", lastselect_multiple[1][2])))
-                        pythonaddins.GPToolDialog(tbxloc2, "MergeCleanup")  # launch the Merge script tool
-                        INTOOL = False
+            ########################################################################
+            ########################################################################
+            if monitorOp == "1101" and self.NJRE_Env: # Merge endpoint
+                NJRE_logger.info('Merge endpoint')
+                try:
+                    contin = True
+                    if multipleselectlength > 2:  #multipleselectlength >= maxselect how it used to be for multiple features.
+                        selecterror = pythonaddins.MessageBox('You have selcted more than 2 features to merge. The NJ Road Editor Add-In does not support this operation.\n\n Please "undo" the merge and try again. ', 'Merge Error', 0)
                         esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
                         monitorOp = "Empty"
-                        # clear the selected feature
-                        try:
-                            arcpy.SelectLayerByAttribute_management(segmentfc, 'CLEAR_SELECTION')
-                        except:
-                            print 'Failed to clear selected feature of segmentfc'
-                    if mergemode == "Merge":
-                        INTOOL = True
-                        NJRE_logger.info('Merge tool called on {0} and {1}'.format(erebus.sqlGUID("SEG_GUID", lastselect_multiple[0][2]), erebus.sqlGUID("SEG_GUID", lastselect_multiple[1][2])))
-                        pythonaddins.GPToolDialog(tbxloc2, "Merge")  # launch the Merge script tool
-                        INTOOL = False
+                        contin = False
+                    if multipleselectlength == 0:  #multipleselectlength >= maxselect how it used to be for multiple features.
                         esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
                         monitorOp = "Empty"
-                        # clear the selected feature
-                        try:
-                            arcpy.SelectLayerByAttribute_management(segmentfc, 'CLEAR_SELECTION')
-                        except:
-                            print 'Failed to clear selected feature of segmentfc'
-                    if mergemode == "Cancel":
-                        INTOOL = False
-                        esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
-                        monitorOp = "Empty"
-                NJRE_logger.info('Merge tool ran')
-            except:
-                trace = traceback.format_exc()
-                NJRE_logger.error('Merge tool failed with exception')
-                pythonaddins.MessageBox('The NJRE Python Add-In Merge tool failed to due to an error. Please email the "NJRE_logger.log" log file (in your scratch workspace) to njgin@oit.state.nj.us\n\n\n{0}'.format(trace), 'Merge Error', 0)
-                NJRE_logger.exception(trace)
+                        contin = False
+                    if contin == True:
+                        # What mode would you like to run in? Cleanup or Standard?
+                        # Pickling an arcpy Polyline object strips out the "curvePaths" key. To avoid this lets export as WKT with the curve vertices (all of them)
+                        # convert the wkt to esrijson
+
+                        segmentgeo_multiple2 = []
+                        for g in segmentgeo_multiple:
+                            segmentgeo_multiple2.append(str(g.WKT))
+                        segmentgeo_multiple = segmentgeo_multiple2
+
+                        splitpath = arcpy.env.scratchWorkspace + "\\mergeselection_multiple.p"
+                        with open(splitpath, 'wb') as output:
+                            pickle.dump([lastselect_multiple, segmentgeo_multiple, selectedfootprints_multiple], output, -1) # outputs the row from the last selected segment, and ["SHAPE@"]
+                        startupinfo = subprocess.STARTUPINFO()
+                        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                        idpath = os.path.join(os.path.dirname(__file__), 'mergeOptions.py')
+                        pipe = subprocess.Popen([pyexe, idpath], startupinfo=startupinfo, stdout = subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
+                        (stdoutdata, stderrdata) = pipe.communicate()
+                        pipe.terminate()
+                        if stderrdata:
+                                print 'stderrdata:  {0}'.format(stderrdata)
+                        if stdoutdata:
+                                mergemode = stdoutdata.split('***')[0]
+
+                        if mergemode == "Cleanup":
+                            INTOOL = True
+                            NJRE_logger.info('Merge Cleanup tool called on {0} and {1}'.format(erebus.sqlGUID("SEG_GUID", lastselect_multiple[0][2]), erebus.sqlGUID("SEG_GUID", lastselect_multiple[1][2])))
+                            pythonaddins.GPToolDialog(tbxloc2, "MergeCleanup")  # launch the Merge script tool
+                            INTOOL = False
+                            esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
+                            monitorOp = "Empty"
+                            # clear the selected feature
+                            try:
+                                arcpy.SelectLayerByAttribute_management(segmentfc, 'CLEAR_SELECTION')
+                            except:
+                                print 'Failed to clear selected feature of segmentfc'
+                        if mergemode == "Merge":
+                            INTOOL = True
+                            NJRE_logger.info('Merge tool called on {0} and {1}'.format(erebus.sqlGUID("SEG_GUID", lastselect_multiple[0][2]), erebus.sqlGUID("SEG_GUID", lastselect_multiple[1][2])))
+                            pythonaddins.GPToolDialog(tbxloc2, "Merge")  # launch the Merge script tool
+                            INTOOL = False
+                            esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
+                            monitorOp = "Empty"
+                            # clear the selected feature
+                            try:
+                                arcpy.SelectLayerByAttribute_management(segmentfc, 'CLEAR_SELECTION')
+                            except:
+                                print 'Failed to clear selected feature of segmentfc'
+                        if mergemode == "Cancel":
+                            INTOOL = False
+                            esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
+                            monitorOp = "Empty"
+                    NJRE_logger.info('Merge tool ran')
+                except:
+                    trace = traceback.format_exc()
+                    NJRE_logger.error('Merge tool failed with exception')
+                    pythonaddins.MessageBox('The NJRE Python Add-In Merge tool failed to due to an error. Please email the "NJRE_logger.log" log file (in your scratch workspace) to njgin@oit.state.nj.us\n\n\n{0}'.format(trace), 'Merge Error', 0)
+                    NJRE_logger.exception(trace)
 
     def onCurrentLayerChanged(self):
         pass
@@ -922,9 +1289,10 @@ class ExtensionClass1(object):
     def onStartEditing(self):
         ########################################################################
         ## Define the user schema tables and layers.
-        global segmentfc, segmentchangetab, transtab, segnametab, segshieldtab, segcommtab, linreftab, sldtab, NJRE_logger, NJRE_handler, pyexe
+        global segmentfc, segmentchangetab, transtab, segnametab, segshieldtab, segcommtab, linreftab, sldtab, NJRE_logger, NJRE_handler, pyexe, userType
         import subprocess, sys, os
         global INTOOL, esesh, monitorOp
+
 
         filehandlerpath = os.path.join(arcpy.env.scratchWorkspace, 'NJRE_logger.log')
         NJRE_handler = logging.FileHandler(filehandlerpath)
@@ -1034,6 +1402,8 @@ class ExtensionClass1(object):
                 buttonDel.enabled = True
                 buttonAddName.enabled = True
                 buttonLRS.enabled = True
+                buttonSegmentComment.enabled = True
+                buttonBatchEditNames.enabled = True
                 #buttonIdentify.enabled = True
 
                 self.NJRE_Env = True
@@ -1054,7 +1424,7 @@ class ExtensionClass1(object):
 
                 NJRE_logger.info('------------------------------------------------------------------------------------')
                 NJRE_logger.info('NJRE Python Add-In edit session started successfully. USER is: {0}'.format(USER))
-
+                userType = USER
             workspace_type = arcpy.env.workspace.split(".")[-1]
             if workspace_type == "gdb":
                 NJRE_logger.info('NJRE Python Add-In edit session using a file geodatabase. User received message box.')
@@ -1078,6 +1448,8 @@ class ExtensionClass1(object):
         buttonDel.enabled = False
         buttonAddName.enabled = False
         buttonLRS.enabled = False
+        buttonSegmentComment.enabled = False
+        buttonBatchEditNames.enabled = False
         #buttonIdentify.enabled = False
         #buttonBatchBuildName.enabled = False
 
@@ -1092,304 +1464,326 @@ class ExtensionClass1(object):
         NJRE_logger.removeHandler(NJRE_handler)
         NJRE_logger.info('Handler removed')
     def onStartOperation(self):
-        global INTOOL, esesh, monitorOp
-        print "onStartOperation {0}".format(INTOOL)
-        INTOOL = self.get_tool_indicator()
-        if INTOOL == False:
-            esesh['onStartOperation'] = 1
-            print "onStartOperation"
-            print esesh
-            global monitorOp
-            print monitorOp
+        global INTOOL, esesh, monitorOp, listenevents
+        if listenevents:
+            print "onStartOperation {0}".format(INTOOL)
+            INTOOL = self.get_tool_indicator()
+            if INTOOL == False:
+                esesh['onStartOperation'] = 1
+                print "onStartOperation"
+                print esesh
+                print monitorOp
     def beforeStopOperation(self):
         pass
     def onStopOperation(self):
         print "onStopOperation"
-        global monitorOp, NJRE_logger, pyexe, esesh
+        global monitorOp, NJRE_logger, pyexe, esesh, listenevents
         global INTOOL
-        tool_indicator_path = os.path.join(arcpy.env.scratchWorkspace, 'tool_indicator.p')
-        # print 'XXpath exists: {0}'.format(os.path.exists(tool_indicator_path))
-        if os.path.exists(tool_indicator_path):
-            with open(tool_indicator_path,'rb') as toolindopen:
-                tool_indicator = pickle.load(toolindopen)
-                print 'tool indicator: {0}'.format(tool_indicator)
-                INTOOL = tool_indicator
-                print 'INTOOL: {0}'.format(INTOOL)
-        if not INTOOL:
-            monitorOp = str(esesh['onStartOperation']) + str(esesh['onChangeFeature']) + str(esesh['onCreateFeature']) + str(esesh['onDeleteFeature'])
-            print "monitorOp is: " + monitorOp
-        # New: 1010
-        # Delete: 1001
-        # Split: 1110
-        # Merge: 1101
-        # ChangeFeature: 1100
-        # Copy Parallel: 1010
-        # Buffer: 1010
-
-        if not INTOOL:
-            if monitorOp == "1100": # ChangeFeature
-                print "you just changed a feature " + monitorOp
-                esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
-                monitorOp = "Empty"
-                print "after change, tokens are cleared, esesh is: {0}".format(esesh)
+        if listenevents:
+            tool_indicator_path = os.path.join(arcpy.env.scratchWorkspace, 'tool_indicator.p')
+            # print 'XXpath exists: {0}'.format(os.path.exists(tool_indicator_path))
+            if os.path.exists(tool_indicator_path):
+                with open(tool_indicator_path,'rb') as toolindopen:
+                    tool_indicator = pickle.load(toolindopen)
+                    print 'tool indicator: {0}'.format(tool_indicator)
+                    INTOOL = tool_indicator
+                    print 'INTOOL: {0}'.format(INTOOL)
+            if not INTOOL:
+                monitorOp = str(esesh['onStartOperation']) + str(esesh['onChangeFeature']) + str(esesh['onCreateFeature']) + str(esesh['onDeleteFeature'])
                 print "monitorOp is: " + monitorOp
+            # New: 1010
+            # Delete: 1001
+            # Split: 1110
+            # Merge: 1101
+            # ChangeFeature: 1100
+            # Copy Parallel: 1010
+            # Buffer: 1010
 
-            if monitorOp == "1000": # Hidden Start
-                print "you just did a hidden start " + monitorOp
-                esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
-                monitorOp = "Empty"
-                print "after hidden op, tokens are cleared, esesh is: {0}".format(esesh)
-                print "monitorOp is: " + monitorOp
-
-            if monitorOp == "1010":  # NewFeature
-                print "you just created a new feature " + monitorOp
-
-            if monitorOp == "1001":  # Delete
-                print "you just deleted a feature " + monitorOp
-                esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
-                monitorOp = "DF"
-                print "after delete, tokens are cleared, esesh is: {0}".format(esesh)
-                print "monitorOp is: " + monitorOp
-
-            if monitorOp == "1101":  # Merge
-                print "you just merged a feature " + monitorOp
-            if monitorOp == "1110" and self.NJRE_Env:  # Split Endpoint
-                try:
-                    NJRE_logger.info('Split endpoint. {0}'.format(erebus.sqlGUID("SEG_GUID",lastselect['SEG_GUID'])))
-                    print "you just split a feature " + monitorOp
+            if not INTOOL:
+                if monitorOp == "1100": # ChangeFeature
+                    print "you just changed a feature " + monitorOp
                     esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
-                    monitorOp = "Split"
+                    monitorOp = "Empty"
+                    print "after change, tokens are cleared, esesh is: {0}".format(esesh)
                     print "monitorOp is: " + monitorOp
-                    ####################################################################
-                    ## 1) Dump out the original segment along with its geometry
-                    splitpath = arcpy.env.scratchWorkspace + "\\splitselection.p"
-                    with open(splitpath, 'wb') as output:
-                        pickle.dump([lastselect, segmentgeo], output, -1)  # outputs the row from the last selected segment, and ["SHAPE@"]
-                    segmentgeo_copy = segmentgeo
-                    ####################################################################
-                    ## 2) Grab the first new segment and launch the Split_segment GP Dialog
-                    # Now there are two new segments in SEGMENT, both with the same SEG_GUID, different GLOBALID
-                    Xsegguid = {}
-                    for i, v in enumerate(lastselect_fields):
-                        Xsegguid[v] = i
-                    # for a fgdb Xsegguid is...   note the order is different fram an enterprise gdb
-                    #{u'ZIPNAME_R': 12, u'TRAVEL_DIR_TYPE_ID': 21, u'ADDR_R_FR': 7, u'SEG_ID': 2, u'ADDR_L_TO': 6, u'ZIPNAME_L': 11, u'JURIS_TYPE_ID': 22, u'OBJECTID': 0, u'DOT_REV_TYPE_ID': 24, u'ADDR_L_FR': 5, u'SYMBOL_TYPE_ID': 20, u'UPDATE_USER': 25, u'ACC_TYPE_ID': 17, u'ZIPCODE_L': 9, u'SURF_TYPE_ID': 18, u'MUNI_ID_L': 13, u'STATUS_TYPE_ID': 19, u'ELEV_TYPE_ID_TO': 16, u'UPDATEDATE': 26, u'ZIPCODE_R': 10, u'OIT_REV_TYPE_ID': 23, u'ELEV_TYPE_ID_FR': 15, u'Shape_Length': 28, u'PRIME_NAME': 4, u'SEG_GUID': 3, u'GLOBALID': 27, u'Shape': 1, u'MUNI_ID_R': 14, u'ADDR_R_TO': 8}
-                    segsql = erebus.sqlGUID("SEG_GUID",lastselect['SEG_GUID'])
-                    globalids = []
-                    with arcpy.da.SearchCursor(segmentfc, ["GLOBALID"],segsql) as cursor:
-                        for row in cursor:
-                            globalids.append(row[0])
-                    global1global2 = {'global1': globalids[0], 'global2': globalids[1]}
-                    ggpath = arcpy.env.scratchWorkspace + "\\global1global2.p"
-                    with open(ggpath, 'wb') as output:
-                        pickle.dump(global1global2, output, -1)
-                    # Go select the first segment and give the user a chance to update it...
-                    #$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
-                    globalsql1 = erebus.sqlGUID("GLOBALID",globalids[0]) # this is the
-                    globalsql2 = erebus.sqlGUID("GLOBALID",globalids[1])
-                    #$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+
+                if monitorOp == "1000": # Hidden Start
+                    print "you just did a hidden start " + monitorOp
+                    esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
+                    monitorOp = "Empty"
+                    print "after hidden op, tokens are cleared, esesh is: {0}".format(esesh)
+                    print "monitorOp is: " + monitorOp
+
+                if monitorOp == "1010":  # NewFeature
+                    print "you just created a new feature " + monitorOp
+                """
+                if monitorOp == "1001":  # Delete
+                    print "you just deleted a feature " + monitorOp
+                    esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
+                    monitorOp = "DF"
+                    print "after delete, tokens are cleared, esesh is: {0}".format(esesh)
+                    print "monitorOp is: " + monitorOp
+                """
+                if monitorOp == "1101":  # Merge
+                    print "you just merged a feature " + monitorOp
+                if monitorOp == "1110" and self.NJRE_Env:  # Split Endpoint
                     try:
-                        # Get the geometry of the segment 1
-                        with arcpy.da.SearchCursor(segmentfc, ["SHAPE@"], globalsql1) as geocursor:
-                            for geo in geocursor:
-                                ge1 = json.loads(geo[0].JSON)
-                        # Get the geometry of the segment 2
-                        with arcpy.da.SearchCursor(segmentfc, ["SHAPE@"], globalsql2) as geocursor:
-                            for geo in geocursor:
-                                ge2 = json.loads(geo[0].JSON)
-                    except:
-                        trace = traceback.format_exc()
-                        NJRE_logger.error('Geometry query on segment failed due to true curve. WKT will be used instead.')
-                        NJRE_logger.exception(trace)
-                        # Get the geometry of the segment 1
-                        with arcpy.da.SearchCursor(segmentfc, ["SHAPE@"], globalsql1) as cursor:
+                        #TODO: SPLIT
+                        segsql = erebus.sqlGUID("SEG_GUID",lastselect['SEG_GUID'])
+                        globalids = []
+                        with arcpy.da.SearchCursor(segmentfc, ["GLOBALID"],segsql) as cursor:
                             for row in cursor:
-                                geometry1 = row[0]
-                        # convert the wkt to esrijson
-                        ej1 = erebus.wkt_to_esrijson(geometry1)
-                        ge1 = ej1['esrijson']
-                        # Get the geometry of the segment 2
-                        with arcpy.da.SearchCursor(segmentfc, ["SHAPE@"], globalsql2) as cursor:
-                            for row in cursor:
-                                geometry2 = row[0]
-                        # convert the wkt to esrijson
-                        ej2 = erebus.wkt_to_esrijson(geometry2)
-                        ge2 = ej2['esrijson']
-                    # dump out a geometry pickle so that the SplitSegment tool can use it to interpolate the address ranges
-                    splitpath = arcpy.env.scratchWorkspace + "\\splitgeometries.p"
-                    with open(splitpath, 'wb') as output:
-                        pickle.dump([ge1, ge2], output, -1)
-                    # Select segment one so the use knows which one that they are working on
-                    arcpy.SelectLayerByAttribute_management(segmentfc, 'NEW_SELECTION', globalsql1)
-                    killsplit = False; splitchoice1 = False
-                    count = int(arcpy.GetCount_management(segmentfc).getOutput(0))
-                    ############################################################
-                    ############################################################
-                    NewSplit = True
-                    if NewSplit == True:
-                        if count == 1:
-                            import subprocess
-                            import sys
-                            import time
+                                globalids.append(row[0])
 
-                            SplitHolderOne = pythonaddins.MessageBox('Use the NJRE Python Add-In to complete the split?', 'NJRE Split Message', 1)  # hold and wait for the segment to be selected
-                            if SplitHolderOne == 'OK': # user click ok on the dialog
-                                NJRE_logger.info('Split OK number 1')
-                                arcpy.RefreshActiveView()
+                        if len(globalids) == 2:
+                            print lastselect['SEG_GUID']
 
-                                ################################################
-                                ## Footprint --Get the Footprint for each of the segments.
-                                Fp1 = erebus.Footprint(globalids[0], qmode = 'GLOBALID')
-                                Footprint1 = Fp1.getfootprint([segmentfc, segnametab, segshieldtab, linreftab, sldtab, segcommtab, transtab, segmentchangetab])
+                            NJRE_logger.info('Split endpoint. {0}'.format(erebus.sqlGUID("SEG_GUID",lastselect['SEG_GUID'])))
+                            print "you just split a feature " + monitorOp
+                            esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
+                            monitorOp = "Split"
+                            print "monitorOp is: " + monitorOp
+                            ####################################################################
+                            ## 1) Dump out the original segment along with its geometry
+                            splitpath = arcpy.env.scratchWorkspace + "\\splitselection.p"
+                            with open(splitpath, 'wb') as output:
+                                pickle.dump([lastselect, segmentgeo], output, -1)  # outputs the row from the last selected segment, and ["SHAPE@"]
+                            segmentgeo_copy = segmentgeo
+                            print 'dumped split selection'
+                            ####################################################################
+                            ## 2) Grab the first new segment and launch the Split_segment GP Dialog
+                            # Now there are two new segments in SEGMENT, both with the same SEG_GUID, different GLOBALID
+                            Xsegguid = {}
+                            for i, v in enumerate(lastselect_fields):
+                                Xsegguid[v] = i
+                            # for a fgdb Xsegguid is...   note the order is different for an enterprise gdb
+                            #{u'ZIPNAME_R': 12, u'TRAVEL_DIR_TYPE_ID': 21, u'ADDR_R_FR': 7, u'SEG_ID': 2, u'ADDR_L_TO': 6, u'ZIPNAME_L': 11, u'JURIS_TYPE_ID': 22, u'OBJECTID': 0, u'DOT_REV_TYPE_ID': 24, u'ADDR_L_FR': 5, u'SYMBOL_TYPE_ID': 20, u'UPDATE_USER': 25, u'ACC_TYPE_ID': 17, u'ZIPCODE_L': 9, u'SURF_TYPE_ID': 18, u'MUNI_ID_L': 13, u'STATUS_TYPE_ID': 19, u'ELEV_TYPE_ID_TO': 16, u'UPDATEDATE': 26, u'ZIPCODE_R': 10, u'OIT_REV_TYPE_ID': 23, u'ELEV_TYPE_ID_FR': 15, u'Shape_Length': 28, u'PRIME_NAME': 4, u'SEG_GUID': 3, u'GLOBALID': 27, u'Shape': 1, u'MUNI_ID_R': 14, u'ADDR_R_TO': 8}
 
-                                NJRE_logger.info('Split Footprint 1')
-                                #print '\nglobal id 1 $$$$$$', globalids[0]
-                                #print 'fp1 $$$$$$$$$$$$$$\n', Footprint1
 
-                                ################################################
-                                ## ELEVATION INTERPOLATION -- You already have the geometries for each of the segments.
-                                ## Figure out which elevation should be left blank for each.
-                                ## By blank, I mean the place where the split took place, so that
-                                ## the user has to input the elevation, becausse it is unknown
+                            global1global2 = {'global1': globalids[0], 'global2': globalids[1]}
+                            ggpath = arcpy.env.scratchWorkspace + "\\global1global2.p"
+                            with open(ggpath, 'wb') as output:
+                                pickle.dump(global1global2, output, -1)
+                            # Go select the first segment and give the user a chance to update it...
+                            #$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+                            globalsql1 = erebus.sqlGUID("GLOBALID",globalids[0]) # this is the
+                            globalsql2 = erebus.sqlGUID("GLOBALID",globalids[1])
+                            #$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+                            print 'dumped the global'
+                            try:
+                                # Get the geometry of the segment 1
+                                with arcpy.da.SearchCursor(segmentfc, ["SHAPE@"], globalsql1) as geocursor:
+                                    for geo in geocursor:
+                                        ge1 = json.loads(geo[0].JSON)
+                                # Get the geometry of the segment 2
+                                with arcpy.da.SearchCursor(segmentfc, ["SHAPE@"], globalsql2) as geocursor:
+                                    for geo in geocursor:
+                                        ge2 = json.loads(geo[0].JSON)
+                            except:
+                                trace = traceback.format_exc()
+                                NJRE_logger.error('Geometry query on segment failed due to true curve. WKT will be used instead.')
+                                NJRE_logger.exception(trace)
+                                # Get the geometry of the segment 1
+                                with arcpy.da.SearchCursor(segmentfc, ["SHAPE@"], globalsql1) as cursor:
+                                    for row in cursor:
+                                        geometry1 = row[0]
+                                # convert the wkt to esrijson
+                                ej1 = erebus.wkt_to_esrijson(geometry1)
+                                ge1 = ej1['esrijson']
+                                # Get the geometry of the segment 2
+                                with arcpy.da.SearchCursor(segmentfc, ["SHAPE@"], globalsql2) as cursor:
+                                    for row in cursor:
+                                        geometry2 = row[0]
+                                # convert the wkt to esrijson
+                                ej2 = erebus.wkt_to_esrijson(geometry2)
+                                ge2 = ej2['esrijson']
+                            # dump out a geometry pickle so that the SplitSegment tool can use it to interpolate the address ranges
+                            splitpath = arcpy.env.scratchWorkspace + "\\splitgeometries.p"
+                            with open(splitpath, 'wb') as output:
+                                pickle.dump([ge1, ge2], output, -1)
+                            # Select segment one so the user knows which one that they are working on
+                            arcpy.SelectLayerByAttribute_management(segmentfc, 'NEW_SELECTION', globalsql1)
+                            print globalsql1
+                            killsplit = False; splitchoice1 = False
+                            count = int(arcpy.GetCount_management(segmentfc).getOutput(0))
+                            print 'Count:' + str(count)
+                            ############################################################
+                            ############################################################
+                            NewSplit = True
+                            if NewSplit == True:
+                                print 'if NewSplit'
+                                if count == 1:
+                                    import subprocess
+                                    import sys
+                                    import time
 
-                                #Get the bisector points on either side of the split
-                                bisector = erebus.bisect_points(ge1, ge2, droplength = 10, plot = False)
-                                NJRE_logger.info('\nbisector {0}'.format(str(bisector)) )
-
-                                Elev_to_Split = {}   #{'ELEV_TYPE_ID_FR': 'At Grade', 'ELEV_TYPE_ID_TO': None}
-                                if bisector['result'] == 'success':
-                                    bis_start_end = bisector['splitstartend 1']
-                                    elevdict = {0: 'At Grade', 1: 'Level 1', 2: 'Level 2', 3: 'Level 3'}
-                                    if bis_start_end == 'end':
-                                        Elev_to_Split['ELEV_TYPE_ID_FR'] = elevdict[Footprint1['SEGMENT'][0]['ELEV_TYPE_ID_FR']]
-                                        Elev_to_Split['ELEV_TYPE_ID_TO'] = None
-                                    if bis_start_end == 'start':
-                                        Elev_to_Split['ELEV_TYPE_ID_TO'] = elevdict[Footprint1['SEGMENT'][0]['ELEV_TYPE_ID_TO']]
-                                        Elev_to_Split['ELEV_TYPE_ID_FR'] = None
-
-                                ################################################
-                                ## ADDRESS INTERPOLATION --
-                                IntAdd1 = erebus.InterpolateAddress(Footprint1)
-                                geocodeurl = 'http://geodata.state.nj.us/arcgis/rest/services/Tasks/Addr_NJ_road/GeocodeServer'
-                                #NJRE_logger.info('geometries: {0}\n\n{1}'.format(ge1,ge2))
-                                (IntVal_1, addintmess_1) = IntAdd1.interpolate(ge1,ge2,geocodeurl,1)   # {'ADDR_L_FR': None, 'ADDR_L_TO': None, 'ADDR_R_FR': None, 'ADDR_R_TO': None}, {'even': None, 'odd': None, 'result': 'na', 'message': 'na', 'primename': False, 'addrlfr': False, 'addrlto': False, 'addrrfr': False, 'addrrto': False}
-                                NJRE_logger.info('Split 1 Geocoded')
-                                #print '\nIntVal_1', IntVal_1
-                                # if IntVal_1['ADDR_L_FR'] = (LF, False), then the LF value is what was in there to begin with. LF could be None !!!
-                                # if IntVal_1['ADDR_L_FR'] = (LF, True), then the LF value is interpolated
-
-                                ################################################
-                                ## Split UI #1
-                                ################################################
-                                startupinfo = subprocess.STARTUPINFO()
-                                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                                INTOOL = True
-                                idpath = os.path.join(os.path.dirname(__file__), 'Split_Test.py')
-                                NJRE_logger.info('Split 1 UI Called')
-                                NJRE_logger.info('\n  idpath {0}'.format(idpath))
-                                NJRE_logger.info('\n  arcpy.env.scratchWorkspace {0}'.format(arcpy.env.scratchWorkspace))
-                                NJRE_logger.info('\n  Footprint 1 {0}'.format(str(Footprint1)) )
-                                NJRE_logger.info('\n  Footprint Length {0}'.format(len(str(Footprint1))))
-                                NJRE_logger.info('\n  Elev_to_Split {0}'.format(str(Elev_to_Split)))
-                                NJRE_logger.info('\n  IntVal_1 {0}'.format(str(IntVal_1)))
-                                domains_path = os.path.join(arcpy.env.scratchWorkspace, "domains.p")
-                                if os.path.exists(domains_path):
-                                    os.remove(domains_path)
-                                with open(domains_path, 'wb') as output:
-                                    pickle.dump(self.Domains, output, -1)
-                                pipe = subprocess.Popen([pyexe, idpath, '1', arcpy.env.scratchWorkspace, str(Footprint1), 'None', str(Elev_to_Split), str(IntVal_1)], startupinfo=startupinfo, stdout = subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
-                                (stdoutdata, stderrdata) = pipe.communicate()
-                                pipe.terminate()
-                                if stderrdata:
-                                    print 'stderrdata:  {0}'.format(stderrdata)
-                                if stdoutdata:
-                                    #print 'stdoutdata:  {0}\n'.format(stdoutdata)
-                                    #print 'stdoutdata type:  {0}'.format(type(stdoutdata))
-                                    Split1_result = stdoutdata.split('***')[0]; print 'Split1_result', Split1_result
-                                    Split1_Footprint = eval(stdoutdata.split('***')[1]) ; print 'Split1_Footprint', Split1_Footprint
-                                    if Split1_result == "OK":
-                                        NJRE_logger.info('Split 1 Success')
-                                        ################################################
-                                        ## Split UI #2
-                                        ################################################
-                                        arcpy.SelectLayerByAttribute_management(segmentfc, 'CLEAR_SELECTION')
-                                        arcpy.SelectLayerByAttribute_management(segmentfc, 'NEW_SELECTION', globalsql2)
+                                    SplitHolderOne = pythonaddins.MessageBox('Use the NJRE Python Add-In to complete the split?', 'NJRE Split Message', 1)  # hold and wait for the segment to be selected
+                                    if SplitHolderOne == 'OK': # user click ok on the dialog
+                                        NJRE_logger.info('Split OK number 1')
                                         arcpy.RefreshActiveView()
-                                        count = int(arcpy.GetCount_management(segmentfc).getOutput(0))
-                                        if count == 1:
-                                            SplitHolderTwo = pythonaddins.MessageBox('Continue?', 'NJRE Split Message', 1)
-                                            if SplitHolderTwo == 'OK':
-                                                NJRE_logger.info('Split OK number 2')
-                                                Fp2 = erebus.Footprint(globalids[1], qmode = 'GLOBALID')
-                                                Footprint2 = Fp2.getfootprint([segmentfc, segnametab, segshieldtab, linreftab, sldtab, segcommtab, transtab, segmentchangetab])
-                                                NJRE_logger.info('Footprint 2')
-                                                bis_start_end = bisector['splitstartend 2']
-                                                Elev_to_Split = {}
-                                                if bis_start_end == 'end':
-                                                    Elev_to_Split['ELEV_TYPE_ID_FR'] = elevdict[Footprint2['SEGMENT'][0]['ELEV_TYPE_ID_FR']]
-                                                    Elev_to_Split['ELEV_TYPE_ID_TO'] = None
-                                                if bis_start_end == 'start':
-                                                    Elev_to_Split['ELEV_TYPE_ID_TO'] = elevdict[Footprint2['SEGMENT'][0]['ELEV_TYPE_ID_TO']]
-                                                    Elev_to_Split['ELEV_TYPE_ID_FR'] = None
-                                                ################################################
-                                                ## ADDRESS INTERPOLATION --
-                                                IntAdd2 = erebus.InterpolateAddress(Footprint2)
-                                                (IntVal_2, addintmess_2) = IntAdd2.interpolate(ge1,ge2,geocodeurl,2)   # {'ADDR_L_FR': None, 'ADDR_L_TO': None, 'ADDR_R_FR': None, 'ADDR_R_TO': None}, {'even': None, 'odd': None, 'result': 'na', 'message': 'na', 'primename': False, 'addrlfr': False, 'addrlto': False, 'addrrfr': False, 'addrrto': False}
-                                                NJRE_logger.info('Split 2 Geocoded')
-                                                ################################################
-                                                ## SPLIT 2 --
-                                                NJRE_logger.info('Split 2 UI Called')
-                                                pipe = subprocess.Popen([pyexe, idpath, '2', arcpy.env.scratchWorkspace, str(Footprint2), 'None', str(Elev_to_Split), str(IntVal_2)], startupinfo=startupinfo, stdout = subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
-                                                (stdoutdata2, stderrdata2) = pipe.communicate()
-                                                pipe.terminate()
-                                                if stderrdata2:
-                                                    print 'stderrdata2:  {0}'.format(stderrdata2)
-                                                if stdoutdata2:
-                                                    #print 'stdoutdata2:  {0}\n'.format(stdoutdata2)
-                                                    Split2_result = stdoutdata2.split('***')[0]; print 'Split2_result', Split2_result
-                                                    Split2_Footprint = eval(stdoutdata2.split('***')[1]) ; print 'Split2_Footprint', Split2_Footprint
-                                                    if Split2_result == "OK":
-                                                        NJRE_logger.info('Split 2 Success')
-                                                        ## SPLIT GEOPROCESSING
-                                                        # This is what you get back from the tool. It needs to go throught to the SplitGeoprocessing class functionality
-                                                        # so that
-                                                        #{'SEGMENT': [{'OIT_REV_TYPE_ID': u'F', 'ELEV_TYPE_ID_FR': 0, 'ZIPNAME_R': u'BARNEGAT', 'TRAVEL_DIR_TYPE_ID': u'B', 'ACC_TYPE_ID': u'N', 'ZIPCODE_L': u'08005', 'SURF_TYPE_ID': u'I', 'MUNI_ID_R': u'882070', 'ADDR_R_FR': 172, 'ADDR_L_FR': 99999999999999999999L, 'STATUS_TYPE_ID': u'A', 'ELEV_TYPE_ID_TO': 0, 'JURIS_TYPE_ID': u'PUB', 'ADDR_R_TO': 176, 'DOT_REV_TYPE_ID': u'F', 'MUNI_ID_L': u'882070', 'ZIPCODE_R': u'08005', 'SYMBOL_TYPE_ID': 700, 'ZIPNAME_L': u'BARNEGAT', 'ADDR_L_TO': 66666666666666666666L}]}
-                                                        arcpy.SelectLayerByAttribute_management(segmentfc, 'CLEAR_SELECTION')
-                                                        NJRE_logger.info('Split geoprocessing results called')
-                                                        splitgeoprocessing = erebus.SplitGeoprocessing(Split1_Footprint, Split2_Footprint, ge1, ge2, Footprint1, Footprint2, segmentgeo_copy, [segmentfc, segnametab, segshieldtab, linreftab, sldtab, segcommtab, transtab, segmentchangetab], arcpy.env.scratchWorkspace)
-                                                        (splitgp_result, msg) = splitgeoprocessing.run()
-                                                        # get the log and show the gp results
-                                                        splitlogpath = os.path.join(arcpy.env.scratchWorkspace, 'SplitGeoprocessing.log')
-                                                        if os.path.exists(splitlogpath):
-                                                            # read the log file and display it
-                                                            with open(splitlogpath, 'r') as splitlog:
-                                                                splitloglines = splitlog.readlines()
-                                                            ########################
-                                                            ## SPLIT GEOPROCESSING RESULTS
-                                                            sgppath = os.path.join(os.path.dirname(__file__), 'GpResults2.py')
-                                                            sgppipe = subprocess.Popen([pyexe, sgppath, splitlogpath], startupinfo=startupinfo, stdout = subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
-                                                            (sgpstdoutdata2, sgpstderrdata2) = sgppipe.communicate()
-                                                            sgppipe.terminate()
-                                                        NJRE_logger.info('Split tool ran')
 
-                            arcpy.SelectLayerByAttribute_management(segmentfc, 'CLEAR_SELECTION')
+                                        ################################################
+                                        ## Footprint --Get the Footprint for each of the segments.
+                                        Fp1 = erebus.Footprint(globalids[0], qmode = 'GLOBALID')
+                                        Footprint1 = Fp1.getfootprint([segmentfc, segnametab, segshieldtab, linreftab, sldtab, segcommtab, transtab, segmentchangetab])
+
+                                        NJRE_logger.info('Split Footprint 1')
+                                        #print '\nglobal id 1 $$$$$$', globalids[0]
+                                        #print 'fp1 $$$$$$$$$$$$$$\n', Footprint1
+
+                                        ################################################
+                                        ## ELEVATION INTERPOLATION -- You already have the geometries for each of the segments.
+                                        ## Figure out which elevation should be left blank for each.
+                                        ## By blank, I mean the place where the split took place, so that
+                                        ## the user has to input the elevation, becausse it is unknown
+
+                                        #Get the bisector points on either side of the split
+                                        bisector = erebus.bisect_points(ge1, ge2, droplength = 10, plot = False)
+                                        NJRE_logger.info('\nbisector {0}'.format(str(bisector)) )
+
+                                        Elev_to_Split = {}   #{'ELEV_TYPE_ID_FR': 'At Grade', 'ELEV_TYPE_ID_TO': None}
+                                        if bisector['result'] == 'success':
+                                            bis_start_end = bisector['splitstartend 1']
+                                            elevdict = {0: 'At Grade', 1: 'Level 1', 2: 'Level 2', 3: 'Level 3'}
+                                            if bis_start_end == 'end':
+                                                Elev_to_Split['ELEV_TYPE_ID_FR'] = elevdict[Footprint1['SEGMENT'][0]['ELEV_TYPE_ID_FR']]
+                                                Elev_to_Split['ELEV_TYPE_ID_TO'] = None
+                                            if bis_start_end == 'start':
+                                                Elev_to_Split['ELEV_TYPE_ID_TO'] = elevdict[Footprint1['SEGMENT'][0]['ELEV_TYPE_ID_TO']]
+                                                Elev_to_Split['ELEV_TYPE_ID_FR'] = None
+
+                                        ################################################
+                                        ## ADDRESS INTERPOLATION --
+                                        IntAdd1 = erebus.InterpolateAddress(Footprint1)
+                                        geocodeurl = 'http://geodata.state.nj.us/arcgis/rest/services/Tasks/Addr_NJ_road/GeocodeServer'
+                                        #NJRE_logger.info('geometries: {0}\n\n{1}'.format(ge1,ge2))
+                                        (IntVal_1, addintmess_1) = IntAdd1.interpolate(ge1,ge2,geocodeurl,1)   # {'ADDR_L_FR': None, 'ADDR_L_TO': None, 'ADDR_R_FR': None, 'ADDR_R_TO': None}, {'even': None, 'odd': None, 'result': 'na', 'message': 'na', 'primename': False, 'addrlfr': False, 'addrlto': False, 'addrrfr': False, 'addrrto': False}
+                                        NJRE_logger.info('Split 1 Geocoded')
+                                        #print '\nIntVal_1', IntVal_1
+                                        # if IntVal_1['ADDR_L_FR'] = (LF, False), then the LF value is what was in there to begin with. LF could be None !!!
+                                        # if IntVal_1['ADDR_L_FR'] = (LF, True), then the LF value is interpolated
+
+                                        ################################################
+                                        ## Split UI #1
+                                        ################################################
+                                        startupinfo = subprocess.STARTUPINFO()
+                                        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                                        INTOOL = True
+                                        idpath = os.path.join(os.path.dirname(__file__), 'Split_Test.py')
+                                        NJRE_logger.info('Split 1 UI Called')
+                                        NJRE_logger.info('\n  idpath {0}'.format(idpath))
+                                        NJRE_logger.info('\n  arcpy.env.scratchWorkspace {0}'.format(arcpy.env.scratchWorkspace))
+                                        NJRE_logger.info('\n  Footprint 1 {0}'.format(str(Footprint1)) )
+                                        NJRE_logger.info('\n  Footprint Length {0}'.format(len(str(Footprint1))))
+                                        NJRE_logger.info('\n  Elev_to_Split {0}'.format(str(Elev_to_Split)))
+                                        NJRE_logger.info('\n  IntVal_1 {0}'.format(str(IntVal_1)))
+                                        domains_path = os.path.join(arcpy.env.scratchWorkspace, "domains.p")
+                                        if os.path.exists(domains_path):
+                                            os.remove(domains_path)
+                                        with open(domains_path, 'wb') as output:
+                                            pickle.dump(self.Domains, output, -1)
+                                        pipe = subprocess.Popen([pyexe, idpath, '1', arcpy.env.scratchWorkspace, str(Footprint1), 'None', str(Elev_to_Split), str(IntVal_1)], startupinfo=startupinfo, stdout = subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
+                                        (stdoutdata, stderrdata) = pipe.communicate()
+                                        pipe.terminate()
+                                        if stderrdata:
+                                            print 'stderrdata:  {0}'.format(stderrdata)
+                                        if stdoutdata:
+                                            #print 'stdoutdata:  {0}\n'.format(stdoutdata)
+                                            #print 'stdoutdata type:  {0}'.format(type(stdoutdata))
+                                            Split1_result = stdoutdata.split('***')[0]; print 'Split1_result', Split1_result
+                                            Split1_Footprint = eval(stdoutdata.split('***')[1]) ; print 'Split1_Footprint', Split1_Footprint
+                                            if Split1_result == "OK":
+                                                NJRE_logger.info('Split 1 Success')
+                                                ################################################
+                                                ## Split UI #2
+                                                ################################################
+                                                arcpy.SelectLayerByAttribute_management(segmentfc, 'CLEAR_SELECTION')
+                                                arcpy.SelectLayerByAttribute_management(segmentfc, 'NEW_SELECTION', globalsql2)
+                                                arcpy.RefreshActiveView()
+                                                count = int(arcpy.GetCount_management(segmentfc).getOutput(0))
+                                                if count == 1:
+                                                    SplitHolderTwo = pythonaddins.MessageBox('Continue?', 'NJRE Split Message', 1)
+                                                    if SplitHolderTwo == 'OK':
+                                                        NJRE_logger.info('Split OK number 2')
+                                                        Fp2 = erebus.Footprint(globalids[1], qmode = 'GLOBALID')
+                                                        Footprint2 = Fp2.getfootprint([segmentfc, segnametab, segshieldtab, linreftab, sldtab, segcommtab, transtab, segmentchangetab])
+                                                        NJRE_logger.info('Footprint 2')
+                                                        bis_start_end = bisector['splitstartend 2']
+                                                        Elev_to_Split = {}
+                                                        if bis_start_end == 'end':
+                                                            Elev_to_Split['ELEV_TYPE_ID_FR'] = elevdict[Footprint2['SEGMENT'][0]['ELEV_TYPE_ID_FR']]
+                                                            Elev_to_Split['ELEV_TYPE_ID_TO'] = None
+                                                        if bis_start_end == 'start':
+                                                            Elev_to_Split['ELEV_TYPE_ID_TO'] = elevdict[Footprint2['SEGMENT'][0]['ELEV_TYPE_ID_TO']]
+                                                            Elev_to_Split['ELEV_TYPE_ID_FR'] = None
+                                                        ################################################
+                                                        ## ADDRESS INTERPOLATION --
+                                                        IntAdd2 = erebus.InterpolateAddress(Footprint2)
+                                                        (IntVal_2, addintmess_2) = IntAdd2.interpolate(ge1,ge2,geocodeurl,2)   # {'ADDR_L_FR': None, 'ADDR_L_TO': None, 'ADDR_R_FR': None, 'ADDR_R_TO': None}, {'even': None, 'odd': None, 'result': 'na', 'message': 'na', 'primename': False, 'addrlfr': False, 'addrlto': False, 'addrrfr': False, 'addrrto': False}
+                                                        NJRE_logger.info('Split 2 Geocoded')
+                                                        ################################################
+                                                        ## SPLIT 2 --
+                                                        NJRE_logger.info('Split 2 UI Called')
+                                                        pipe = subprocess.Popen([pyexe, idpath, '2', arcpy.env.scratchWorkspace, str(Footprint2), 'None', str(Elev_to_Split), str(IntVal_2)], startupinfo=startupinfo, stdout = subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
+                                                        (stdoutdata2, stderrdata2) = pipe.communicate()
+                                                        pipe.terminate()
+                                                        if stderrdata2:
+                                                            print 'stderrdata2:  {0}'.format(stderrdata2)
+                                                        if stdoutdata2:
+                                                            #print 'stdoutdata2:  {0}\n'.format(stdoutdata2)
+                                                            Split2_result = stdoutdata2.split('***')[0]; print 'Split2_result', Split2_result
+                                                            Split2_Footprint = eval(stdoutdata2.split('***')[1]) ; print 'Split2_Footprint', Split2_Footprint
+                                                            if Split2_result == "OK":
+                                                                NJRE_logger.info('Split 2 Success')
+                                                                ## SPLIT GEOPROCESSING
+                                                                # This is what you get back from the tool. It needs to go throught to the SplitGeoprocessing class functionality
+                                                                # so that
+                                                                #{'SEGMENT': [{'OIT_REV_TYPE_ID': u'F', 'ELEV_TYPE_ID_FR': 0, 'ZIPNAME_R': u'BARNEGAT', 'TRAVEL_DIR_TYPE_ID': u'B', 'ACC_TYPE_ID': u'N', 'ZIPCODE_L': u'08005', 'SURF_TYPE_ID': u'I', 'MUNI_ID_R': u'882070', 'ADDR_R_FR': 172, 'ADDR_L_FR': 99999999999999999999L, 'STATUS_TYPE_ID': u'A', 'ELEV_TYPE_ID_TO': 0, 'JURIS_TYPE_ID': u'PUB', 'ADDR_R_TO': 176, 'DOT_REV_TYPE_ID': u'F', 'MUNI_ID_L': u'882070', 'ZIPCODE_R': u'08005', 'SYMBOL_TYPE_ID': 700, 'ZIPNAME_L': u'BARNEGAT', 'ADDR_L_TO': 66666666666666666666L}]}
+                                                                arcpy.SelectLayerByAttribute_management(segmentfc, 'CLEAR_SELECTION')
+                                                                NJRE_logger.info('Split geoprocessing results called')
+                                                                splitgeoprocessing = erebus.SplitGeoprocessing(Split1_Footprint, Split2_Footprint, ge1, ge2, Footprint1, Footprint2, segmentgeo_copy, [segmentfc, segnametab, segshieldtab, linreftab, sldtab, segcommtab, transtab, segmentchangetab], arcpy.env.scratchWorkspace)
+                                                                (splitgp_result, msg) = splitgeoprocessing.run()
+                                                                # get the log and show the gp results
+                                                                splitlogpath = os.path.join(arcpy.env.scratchWorkspace, 'SplitGeoprocessing.log')
+                                                                if os.path.exists(splitlogpath):
+                                                                    # read the log file and display it
+                                                                    with open(splitlogpath, 'r') as splitlog:
+                                                                        splitloglines = splitlog.readlines()
+                                                                    ########################
+                                                                    ## SPLIT GEOPROCESSING RESULTS
+                                                                    sgppath = os.path.join(os.path.dirname(__file__), 'GpResults2.py')
+                                                                    sgppipe = subprocess.Popen([pyexe, sgppath, splitlogpath], startupinfo=startupinfo, stdout = subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
+                                                                    (sgpstdoutdata2, sgpstderrdata2) = sgppipe.communicate()
+                                                                    sgppipe.terminate()
+                                                                NJRE_logger.info('Split tool ran')
+
+                                    arcpy.SelectLayerByAttribute_management(segmentfc, 'CLEAR_SELECTION')
+                                    INTOOL = False
+                                    esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
+                                    monitorOp = 'Empty'
+                                if count != 1:
+                                    print 'count is ' + str(count)
+                        else:
                             INTOOL = False
                             esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
                             monitorOp = 'Empty'
+                            print "Hidden Operation found. Not a split."
 
-                except:
-                    trace = traceback.format_exc()
-                    arcpy.SelectLayerByAttribute_management(segmentfc, 'CLEAR_SELECTION')
-                    INTOOL = False
-                    esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
-                    monitorOp = 'Empty'
-                    pythonaddins.MessageBox('The NJRE Python Add-In Split tool failed due to an error. Please try the operation again in a new edit session. If the issue persists, please email the "NJRE_logger.log" log file (in your scratch workspace) to njgin@oit.state.nj.us\n\n\n{0}'.format(trace), 'Split Error', 0)
-                    NJRE_logger.error('Split tool failed with exception. User received message box with error')
-                    NJRE_logger.exception(trace)
-                    try:
-                        pipe.terminate()
                     except:
-                        pass
+                        trace = traceback.format_exc()
+                        arcpy.SelectLayerByAttribute_management(segmentfc, 'CLEAR_SELECTION')
+                        INTOOL = False
+                        esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0
+                        monitorOp = 'Empty'
+                        print "NJRE Python Add-In Split tool failed due to an error"
+                        print trace
+                        pythonaddins.MessageBox('The NJRE Python Add-In Split tool failed due to an error. Please try the operation again in a new edit session. If the issue persists, please email the "NJRE_logger.log" log file (in your scratch workspace) to njgin@oit.state.nj.us\n\n\n{0}'.format(trace), 'Split Error', 0)
+                        NJRE_logger.error('Split tool failed with exception. User received message box with error')
+                        NJRE_logger.exception(trace)
+                        try:
+                            pipe.terminate()
+                        except:
+                            pass
 
 
 
@@ -1399,30 +1793,36 @@ class ExtensionClass1(object):
         print "onSaveEdits"
         esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0;
     def onChangeFeature(self):
-        # New Feature: "10101"
-        INTOOL = self.get_tool_indicator()
-        print "OnChangeFeature {0}".format(INTOOL)
-        if INTOOL == False:
-            esesh['onChangeFeature'] = 1
-            print "OnChangeFeature"
+        global listenevents
+        if listenevents:
+            # New Feature: "10101"
+            INTOOL = self.get_tool_indicator()
+            print "OnChangeFeature {0}".format(INTOOL)
+            if INTOOL == False:
+                esesh['onChangeFeature'] = 1
+                print "OnChangeFeature"
 
     def onCreateFeature(self):
-        #pythonaddins.MessageBox('onCreateFeature', 'INFO', 0)
-        INTOOL = self.get_tool_indicator()
-        print "onCreateFeature {0}".format(INTOOL)
-        if INTOOL == False:
-            print "OnChangeFeature"
-            esesh['onCreateFeature'] = 1
-            print esesh
-            print monitorOp
+        global listenevents
+        if listenevents:
+            #pythonaddins.MessageBox('onCreateFeature', 'INFO', 0)
+            INTOOL = self.get_tool_indicator()
+            print "onCreateFeature {0}".format(INTOOL)
+            if INTOOL == False:
+                print "OnChangeFeature"
+                esesh['onCreateFeature'] = 1
+                print esesh
+                print monitorOp
 
     def onDeleteFeature(self):
-        #pythonaddins.MessageBox('onDeleteFeature', 'INFO', 0)
-        INTOOL = self.get_tool_indicator()
-        print "onDeleteFeature {0}".format(INTOOL)
-        if INTOOL == False:
-            print "onDeleteFeature"
-            esesh['onDeleteFeature'] = 1
+        global listenevents
+        if listenevents:
+            #pythonaddins.MessageBox('onDeleteFeature', 'INFO', 0)
+            INTOOL = self.get_tool_indicator()
+            print "onDeleteFeature {0}".format(INTOOL)
+            if INTOOL == False:
+                print "onDeleteFeature"
+                esesh['onDeleteFeature'] = 1
 
     def onUndo(self):
         esesh['onStartOperation'] = 0; esesh['onChangeFeature'] = 0; esesh['onCreateFeature'] = 0; esesh['onDeleteFeature'] = 0;
@@ -1432,4 +1832,7 @@ class ExtensionClass1(object):
     def onRedo(self):
         pass
         #pythonaddins.MessageBox('onRedo', 'INFO', 0)
+
+
+
 

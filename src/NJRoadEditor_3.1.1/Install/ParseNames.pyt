@@ -19,7 +19,113 @@ class Toolbox(object):
         self.alias = "parsenames"
 
         # List of tool classes associated with this toolbox
-        self.tools = [Standardize]
+        self.tools = [Comment, Standardize]
+
+class Comment(object):
+    def __init__(self):
+        """Define the tool (tool name is the name of the class)."""
+        self.label = "Segment Comment"
+        self.description = "Add comments on a road feature and update the NJ Road Centerline Database."
+        self.canRunInBackground = False
+        self.commentCount = 0
+        self.values = []
+        #self.msg = "123"
+
+
+    def getParameterInfo(self):
+        """Define parameter definitions"""
+
+        #
+        param0 = arcpy.Parameter(
+            displayName="Edit Type",
+            name="edittype",
+            datatype="GPString",
+            parameterType="Required",
+            direction="Input")
+        param0.filter.type = "ValueList"
+        param0.filter.list = ['Added','Deleted','Revised','Verify','Future']
+
+        #
+        param1 = arcpy.Parameter(
+            displayName="Edit Category",
+            name="editcategory",
+            datatype="GPString",
+            parameterType="Required",
+            direction="Input")
+        param1.filter.type = "ValueList"
+        param1.filter.list = ['Access Type','Address Range','Elevation Type','Jurisdiction Type','Municipality','Prime Name',
+                              'SEG_GUID','Segment Direction','Segment End Point','Segment Extension','Segment Geometry',
+                              'Segment Merge','Segment Name','Segment Split','Segment Start Point','Shield Record','Status Type',
+                              'Surface Type','Symbol Type','Topology Error','Travel Direction Type','Zip Code','Zip Name']
+
+        #
+        param2 = arcpy.Parameter(
+            displayName="Comment",
+            name="newcomment",
+            datatype="GPString",
+            parameterType="Required",
+            direction="Input")
+
+        #
+        param3 = arcpy.Parameter(
+            displayName="Comment List",
+            name="comments",
+            datatype="GPValueTable",
+            parameterType="Required",
+            direction="Input")
+        param3.columns = [['GPString', 'Comments']]
+        param3.filters[0].type = "ValueList"
+        param3.filters[0].list = ["Add"]
+
+        params = [param0,param1,param2,param3]
+        return params
+
+    def isLicensed(self):
+        """Set whether tool is licensed to execute."""
+        return True
+
+    def updateParameters(self, parameters):
+        """Modify the values and properties of parameters before internal
+        validation is performed.  This method is called whenever a parameter
+        has been changed."""
+
+        if not parameters[3].hasBeenValidated:
+            newValue = ' '.join([str(parameters[0].value),str(parameters[1].value),str(parameters[2].value)])
+            lenVals = len(parameters[3].values)
+            parameters[3].filters[0].list.append(newValue)
+            if parameters[3].values[lenVals - 1][0] in ['Add']:
+                if len(parameters[3].values) < len(self.values):
+                    self.values = parameters[3].values
+                else:
+                    rowIndex = len(parameters[3].values) - 1
+                    self.values = parameters[3].values
+                    self.values[rowIndex] = [newValue]
+                    parameters[3].values = self.values
+
+
+        return
+
+    def updateMessages(self, parameters):
+        """Modify the messages created by internal validation for each tool
+        parameter.  This method is called after internal validation."""
+        import traceback
+
+
+        return
+
+    def execute(self, parameters, messages):
+        """The source code of the tool."""
+        import arcpy
+        import os
+        import pickle
+        import sys
+        import traceback
+        #os.sys.path.append(os.path.dirname(__file__))
+        #import erebus
+
+        messages.addMessage(self.msg)
+
+        return
 
 
 class Standardize(object):

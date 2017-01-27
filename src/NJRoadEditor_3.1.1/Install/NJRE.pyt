@@ -6,6 +6,7 @@
 # Contact:      njgin@oit.nj.gov
 #
 # Created:      9/22/2014
+# Revised       11/9/2016
 # Copyright:    (c) NJ Office of GIS 2015
 # Licence:      GPLv3
 
@@ -63,6 +64,8 @@ if esriversion.split('.')[1] == '2':
     pyexe = 'C:\Python27\ArcGIS10.2\python.exe'
 if esriversion.split('.')[1] == '3':
     pyexe = 'C:\Python27\ArcGIS10.3\python.exe'
+if esriversion.split('.')[1] == '4':
+    pyexe = 'C:\Python27\ArcGIS10.4\python.exe'
 
 
 def set_tool_indicator(workspace, value):
@@ -116,6 +119,7 @@ def getlongnames(workspace, names):
 
 
 longnames = getlongnames(arcpy.env.workspace, ["SEGMENT", "SEGMENT_CHANGE", "SEGMENT_TRANS", "SEG_NAME", "SEG_SHIELD", "SEGMENT_COMMENTS", "LINEAR_REF", "SLD_ROUTE"])
+print 'first longnames: ' + str(longnames)
 try:
     segmentfc = erebus.getlongname(arcpy.env.workspace, longnames["SEGMENT"], "Layer")
     segmentchangetab = erebus.getlongname(arcpy.env.workspace, longnames["SEGMENT_CHANGE"], "Layer")
@@ -137,6 +141,8 @@ for domain in domains:
         Domains[domain.name] = domain.codedValues
 
 
+
+
 class Toolbox(object):
     def __init__(self):
         """Define the toolbox (the name of the toolbox is the name of the
@@ -146,6 +152,95 @@ class Toolbox(object):
 
         # List of tool classes associated with this toolbox
         self.tools = [Delete, NewSegment, Split, SplitSegment, Merge, MergeCleanup, BatchBuildName,LRS, BatchPost, EditNames]
+
+"""
+class Comment(object):
+    def __init__(self):
+        #Define the tool (tool name is the name of the class).
+        self.label = "Segment Comment"
+        self.description = "Add comments on a road feature and update the NJ Road Centerline Database."
+        self.canRunInBackground = True
+        self.commentCount = 0
+        global segmentfc, segmentchangetab, transtab, segnametab, segshieldtab, segcommtab, linreftab, sldtab, commentRows
+
+    def getParameterInfo(self):
+        #Define parameter definitions
+
+        #
+
+        params = []
+        return params
+
+    def isLicensed(self):
+        #Set whether tool is licensed to execute.
+        return True
+
+    def updateParameters(self, parameters):
+        #Modify the values and properties of parameters before internal
+        #validation is performed.  This method is called whenever a parameter
+        #has been changed.
+
+        return
+
+    def updateMessages(self, parameters):
+        #Modify the messages created by internal validation for each tool
+        #parameter.  This method is called after internal validation.
+        import traceback
+
+        return
+
+    def execute(self, parameters, messages):
+        #The source code of the tool.
+        import arcpy
+        import os
+        import pickle
+        import sys
+        import traceback
+        import subprocess
+        import pipes
+        os.sys.path.append(os.path.dirname(__file__))
+        import erebus
+
+        print "THIS TOOL HAS RUN!"
+
+        commentpickle = os.path.join(arcpy.env.scratchWorkspace, "segcommentlist.p")
+        # Start up the Segment Comment Tool
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        idpath = os.path.join(os.path.dirname(__file__), 'segcommentTool.exe')
+
+        commentproc = subprocess.Popen([idpath,pipes.quote(str(arcpy.env.scratchWorkspace))], startupinfo=startupinfo,stdin=subprocess.PIPE, stdout = subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        (stdout, stderr) = commentproc.communicate()
+        if stderr:
+            print 'stderrdata:  {0}'.format(stderr)
+        if stdout:
+            print 'stoutdata:  {0}'.format(str(stdout))
+        # Load the comments pickle
+        if os.path.exists(commentpickle):
+            with open(commentpickle,'rb') as commentsfile:
+                newcomments = pickle.load(commentsfile)
+
+            if newcomments['comments']:
+                print 'New Comments Found!: ' + str(newcomments['comments'])
+                #TODO Write out the new comments to the database- commit edits and confirm they are written- DONE
+                commentprocessing = erebus.CommentProcessing(newcomments, [segmentfc, segnametab, segshieldtab, linreftab, sldtab, segcommtab, transtab, segmentchangetab], arcpy.env.scratchWorkspace, userType,arcpy.env.scratchWorkspace, 'NJOIT')
+                commgp_result = commentprocessing.run()
+        else:
+            print 'ERROR: Cant find segment comments pickle!'
+        return
+
+# END Segment Comments
+# ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+# ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+# ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+# ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+# ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+# ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+# ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+# ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+# ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+# ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+"""
 
 class Delete(object):
     def __init__(self):
@@ -838,7 +933,7 @@ class NewSegment(object):
             parameterType="Optional",
             direction="Input")
         param32.filter.type = "ValueList"
-        param32.filter.list = ["NJDOT SLD", "Tiger", "County", "MOD IV", "Other", "NJOIT", "Taxmap"]
+        param32.filter.list = ["NJDOT SLD", "Tiger", "County", "MOD IV", "Other", "NJOIT", "TAXMAP"]
 
         param22.category = "SEG_NAME"
         param23.category = "SEG_NAME"
@@ -5719,7 +5814,7 @@ class LRS(object):
             datatype="GPValueTable",
             parameterType="Optional",
             direction="Input")
-        param0.columns = [['String', 'Record ID'], ['String', '*SEG_GUID'], ['String', 'SRI'], ['GPLong','*LRS_TYPE_ID'], ['String', '*SEG_TYPE_ID'], ['GPDouble', 'MILEPOST_FR'], ['GPDouble', 'MILEPOST_TO'], ['String', 'RCF']]
+        param0.columns = [['GPString', 'Record ID'], ['GPString', '*SEG_GUID'], ['GPString', 'SRI'], ['GPLong','*LRS_TYPE_ID'], ['GPString', '*SEG_TYPE_ID'], ['GPDouble', 'MILEPOST_FR'], ['GPDouble', 'MILEPOST_TO'], ['GPString', 'RCF']]
 
         #
         param1 = arcpy.Parameter(
@@ -5796,7 +5891,7 @@ class LRS(object):
             datatype="GPValueTable",
             parameterType="Optional",
             direction="Input")
-        param8.columns = [['String', 'Record ID'], ['String', '*SRI'], ['GPLong','*ROUTE_TYPE_ID'], ['String', 'SLD_NAME'], ['String', 'SLD_COMMENT'], ['String', 'SLD_DIRECTION'], ['String', 'SIGN_NAME']]
+        param8.columns = [['GPString', 'Record ID'], ['GPString', '*SRI'], ['GPLong','*ROUTE_TYPE_ID'], ['GPString', 'SLD_NAME'], ['GPString', 'SLD_COMMENT'], ['GPString', 'SLD_DIRECTION'], ['GPString', 'SIGN_NAME']]
 
         #
         param9 = arcpy.Parameter(
@@ -6379,7 +6474,7 @@ class LRS(object):
                             RecordsValues_lrs[i][5] = 0.0
                 RecordsValues_sld = parameters[8].values
 
-        if arcpy.GetInstallInfo()['Version'] == '10.2.2' or arcpy.GetInstallInfo()['Version'] == '10.3' or arcpy.GetInstallInfo()['Version'] == '10.3.1':
+        if arcpy.GetInstallInfo()['Version'] == '10.2.2' or arcpy.GetInstallInfo()['Version'] == '10.3' or arcpy.GetInstallInfo()['Version'] == '10.3.1' or arcpy.GetInstallInfo()['Version'] == '10.4' or arcpy.GetInstallInfo()['Version'] == '10.4.1':
             if updatecount <= 3:
                 if lrs_pickle['linreftab'][0]:
                     RecordsValues_lrs = lrs_pickle['linreftab'][1]
@@ -7199,7 +7294,7 @@ class EditNames(object):
             datatype="GPValueTable",
             parameterType="Optional",
             direction="Input")
-        param0.columns = [['String', 'Record ID'], ['String', '*SEG_GUID'], ['String', '*NAME_TYPE_ID'], ['Long','*RANK'], ['String', '*NAME_FULL'], ['String', 'PRE_DIR'], ['String', 'PRE_TYPE'], ['String', 'PRE_MOD'], ['String', '*NAME'], ['String', 'SUF_TYPE'], ['String', 'SUF_DIR'], ['String', 'SUF_MOD'], ['Long', '*DATA_SRC_TYPE_ID'], ['String', 'SHIELD_TYPE_ID'], ['String', 'SHIELD_SUBTYPE_ID'], ['String', 'SHIELD_NAME']]
+        param0.columns = [['GPString', 'Record ID'], ['GPString', '*SEG_GUID'], ['GPString', '*NAME_TYPE_ID'], ['GPLong','*RANK'], ['GPString', '*NAME_FULL'], ['GPString', 'PRE_DIR'], ['GPString', 'PRE_TYPE'], ['GPString', 'PRE_MOD'], ['GPString', '*NAME'], ['GPString', 'SUF_TYPE'], ['GPString', 'SUF_DIR'], ['GPString', 'SUF_MOD'], ['GPLong', '*DATA_SRC_TYPE_ID'], ['GPString', 'SHIELD_TYPE_ID'], ['GPString', 'SHIELD_SUBTYPE_ID'], ['GPString', 'SHIELD_NAME']]
         #param00.values = [[u'L1', u'guid', 'Name Full',False], [u'L2', u'guid', 'Name Full',False]] #"hey you;guys text2"  ['GPBoolean', 'Delete?']
         #param00.enabled = False
 
@@ -7885,7 +7980,7 @@ class EditNames(object):
                 #arcpy.AddMessage('\n4')
                 RecordsValues = parameters[0].values
 
-        if arcpy.GetInstallInfo()['Version'] == '10.2.2' or arcpy.GetInstallInfo()['Version'] == '10.3'  or arcpy.GetInstallInfo()['Version'] == '10.3.1':
+        if arcpy.GetInstallInfo()['Version'] == '10.2.2' or arcpy.GetInstallInfo()['Version'] == '10.3'  or arcpy.GetInstallInfo()['Version'] == '10.3.1' or arcpy.GetInstallInfo()['Version'] == '10.4' or arcpy.GetInstallInfo()['Version'] == '10.4.1':
             if updatecount <= 3:
                 #arcpy.AddMessage('\n5')
                 if editnames_pickle['segment'][0]:

@@ -49,6 +49,8 @@ def sqlcursor(field, value):
     sqlquery = "%s = '%s'" % (field, value)
     return sqlquery
 
+
+
 class FullName(object):
     """Build a full name from seven parts with no abbreviations."""
     #predir=None, pretype=None, premod=None, name, suftype=None, sufdir=None, sufmod=None
@@ -1991,6 +1993,106 @@ class SegmentGeoprocessing:
             except: pass
             return None, trace
 
+
+
+
+class CommentProcessing:
+    def __init__(self, commentsref, tables, scratch, user):
+        """The CommentProcessing task, accepts list of SEG_GUIDs commits new comments to the SEG_COMMENT table. If edits were successfully committed- returns True. If unsuccessful, returns None and error message
+        """
+
+        import arcpy, traceback, os, sys, logging
+
+        self.user = user
+        self.segguids = commentsref['segguids']
+        self.comments = commentsref['comments']
+        self.finaldate = commentsref['finaldate']
+        # tablenames is a list of tablenames  ['SEGMENT', 'SEG_NAME', 'SEG_SHIELD', 'LINEAR_REF', 'SLD_ROUTE', 'SEGMENT_COMMENTS', 'SEGMENT_TRANS', 'SEGMENT_CHANGE']
+        self.segmentfc = tables[0]
+        self.segnametab = tables[1]
+        self.segshieldtab = tables[2]
+        self.linreftab = tables[3]
+        self.sldtab = tables[4]
+        self.segcommtab = tables[5]
+        self.transtab = tables[6]
+        self.segmentchangetab = tables[7]
+
+        self.scratch = scratch
+
+        #####################################
+        #LOGGER
+        #self.logger = logging.getLogger('SegmentGeoprocessing')
+        #self.logger.setLevel(logging.DEBUG)
+
+        # create a file handler
+        #filehandlerpath = os.path.join(scratch, 'SegmentGeoprocessing.log')  #os.path.join(os.path.dirname(__file__), 'SplitGeoprocessing.log')
+        #if os.path.exists(filehandlerpath):
+        #    os.remove(filehandlerpath)
+        #self.handler = logging.FileHandler(filehandlerpath)
+        #self.handler.setLevel(logging.DEBUG)
+
+        # create a logging format
+        #self.formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        #self.handler.setFormatter(self.formatter)
+        #self.logger.addHandler(self.handler)
+
+        #self.logger.info('SegmentGeoprocessing Class Called, Geoprocessing started...')
+        #self.logger.info('SEG_GUID: {0}'.format(self.Pre_Footprint["SEG_GUID"]))
+
+        #self.logger.info('Pre Footprint: {0}'. format(self.Pre_Footprint))
+        #self.logger.info('Post Footprint {0}'. format(self.Post_Footprint))
+
+    def run(self):
+        import arcpy, traceback, os, sys, logging, datetime
+
+        try:
+            '''
+            commentcursor = arcpy.da.InsertCursor(self.segcommtab, ['SEG_GUID','COMMENTS','RANK'])
+            for x in self.segguids:
+                for c in self.comments:
+                    newcomm = 'USER:' + self.user + '- ' + c
+                    commentcursor.insertRow([x,newcomm,1])
+            del commentcursor
+            '''
+            startingRanks = {}
+            for x in self.segguids:
+                startingRanks[x] = 0
+            scursor = arcpy.SearchCursor(self.segcommtab)
+            for searchrow in scursor:
+                seg = searchrow.getValue('SEG_GUID')
+                if seg in self.segguids:
+                    startingRanks[seg] = startingRanks[seg] + 1
+
+
+            if isinstance(self.finaldate, datetime.date):
+                self.finaldate = self.finaldate.strftime("%Y/%m/%d")
+
+            commentcursor =  arcpy.InsertCursor(self.segcommtab)
+            for x in self.segguids:
+                for c in self.comments:
+                    startingRanks[x] = startingRanks[x] + 1
+                    newcomm = 'USER:' + self.user + '- ' + c
+                    row = commentcursor.newRow()
+                    row.setValue('SEG_GUID', x)
+                    row.setValue('COMMENTS', newcomm)
+                    row.setValue('RANK', startingRanks[x])
+                    row.setValue('FINALIZEDDATE',self.finaldate)
+                    commentcursor.insertRow(row)
+            del commentcursor, row
+
+            return True
+
+        except:
+            trace = traceback.format_exc()
+            #self.logger.exception(trace)
+            #self.logger.warning('Geoprocessing Failed')
+            #self.logger.removeHandler(self.handler)
+            try: del row
+            except: pass
+            try: del commentcursor
+            except: pass
+
+            return None, trace
 
 if __name__ == "__main__":
     calcGUID()

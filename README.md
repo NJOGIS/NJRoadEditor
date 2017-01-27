@@ -25,18 +25,18 @@ Contributors should fork this repo and submit pull requests regularly for code i
 - Oracle 11g, 12c
 - SQL Server 2008R2 (untested on 2012 and 2014, but should work)
 
-## Coming Soon Version 3.1.1
+## Coming Soon Version 3.2.1
 
-##Current Version: 3.1.0
+##Current Version: 3.2
 
-The latest stable version is NJRoadEditor_3.1.0. If you would like to download the `.esriaddin` file for quick installation (or full source code), Please go to the release page @ https://github.com/NJOGIS/NJRoadEditor/releases.
+The latest stable version is NJRoadEditor_3.2. If you would like to download the `.esriaddin` file for quick installation (or full source code), Please go to the release page @ https://github.com/NJOGIS/NJRoadEditor/releases.
 
 The main branch of this repository is used for development. You are free to use the development version of the Add-In, but we make no guarantee that it will function properly, so use at your own risk.
 
 ### Release Notes
 
 - This release is not digitally signed. Digital signature will be updated soon.
-- This release can be used with replicated NJOGIS geodata services using a 10.3.1 ArcMap desktop client & 10.3.1 client geodatabase. 
+- This release can be used with replicated NJOGIS geodata services using a 10.4.1 ArcMap desktop client & 10.3.1 client geodatabase.
 - SHA-1 Checksum: 3F17FE6DFB63D58E0DE207F3EDFB504A199B4918
 - Data model diagram button tool launches PDF of data model.
 - Bug Fix: NewSegment, Merge, and Split tools were not updating the tool status config file to indicate that the tool was not present after a "cancel" of the tool. This was fixed by moving the tool indicator status write to the tool execute statement instead of the Roads_addin python file. 
@@ -53,3 +53,4 @@ Please submit issues and/or bugs through the issues page at https://github.com/N
 
 - NJ Office of GIS
 - Code Contributors: Ed Farrell @EdFarrell
+                     Chris Klaube
